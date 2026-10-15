@@ -91,6 +91,22 @@ Er verwendet ebenfalls eine temporäre Datenbank und einen Test-Mailausgang.
 Screenshots werden unter `/tmp/vorum-preview/` abgelegt; bitte vor einer
 Weitergabe trotzdem auf unbeabsichtigte Inhalte prüfen.
 
+Der CI-Workflow prüft Python 3.9 und 3.12 sowie einen Docker-Start mit Webserver
+und Worker. Den Container-Test kannst du bei laufendem Docker lokal ausführen:
+
+```sh
+docker build -t vorum:ci .
+VORUM_IMAGE=vorum:ci bash tests/container_smoke.sh
+```
+
+Er erzeugt ein separates Compose-Projekt samt Testvolume, prüft Erreichbarkeit,
+Dateirechte und gemeinsam genutzte persistente Daten und entfernt die Testressourcen
+anschließend wieder. Ein echter SMTP-Versand gehört nicht zu diesem Starttest.
+Die CI-Startprüfung läuft auf AMD64; beim Release werden zusätzlich ARM64-Images
+gebaut. Ein ARM64-Laufzeittest ist damit noch nicht abgedeckt.
+
+Der [Release-Ablauf](docs/releases.md) beschreibt die Image-Veröffentlichung.
+
 ## Pull Request einreichen
 
 Beschreibe das Problem, das Verhalten nach deiner Änderung und die tatsächlich

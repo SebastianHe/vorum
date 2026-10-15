@@ -1,0 +1,144 @@
+name: Publish Docker image
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+# Avoid concurrent uploads for the same release; do not cancel an active push.
+concurrency:
+  group: docker-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Validate release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image: ${{ steps.version.outputs.image }}
+      version: ${{ steps.version.outputs.version }}
+      minor: ${{ steps.version.outputs.minor }}
+      stable: ${{ steps.version.outputs.stable }}
+    steps:
+      - name: Validate tag and prerelease flag
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+
+          tag = os.environ['RELEASE_TAG']
+          number = r'(0|[1-9][0-9]*)'
+          identifier = r'(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+          pattern = rf'v{number}\.{number}\.{number}(?:-({identifier}(?:\.{identifier})*))?'
+          match = re.fullmatch(pattern, tag)
+          if not match:
+              raise SystemExit('Use vMAJOR.MINOR.PATCH or e.g. v0.2.0-rc.1 (no build metadata).')
+          prerelease = match.group(4) is not None
+          if prerelease != (os.environ['PRERELEASE'] == 'true'):
+              raise SystemExit('Tag suffix and GitHub prerelease checkbox must agree.')
+          version = tag[1:]
+          if len(version) > 128:
+              raise SystemExit('Version exceeds the Docker tag length limit.')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'image=ghcr.io/{os.environ["GITHUB_REPOSITORY"].lower()}\n')
+              output.write(f'version={version}\n')
+              output.write(f'minor={match.group(1)}.{match.group(2)}\n')
+              output.write(f'stable={str(not prerelease).lower()}\n')
+          PY
+
+  checks:
+    name: Release checks
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  publish:
+    name: Publish AMD64 and ARM64 images
+    needs: [prepare, checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image tags and labels
+        id: metadata
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ needs.prepare.outputs.image }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=${{ needs.prepare.outputs.minor }},enable=${{ needs.prepare.outputs.stable }}
+            type=raw,value=latest,enable=${{ needs.prepare.outputs.stable }}
+          labels: |
+            org.opencontainers.image.title=Vorum
+            org.opencontainers.image.description=Self-hosted multilingual forum software
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+      - name: Build and publish
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          pull: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=release
+          cache-to: type=gha,mode=max,scope=release
+
+  compose:
+    name: Attach versioned Compose file
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Pin the image version in the release asset
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path('compose.release.yaml')
+          template = path.read_text()
+          placeholder = 'ghcr.io/sebastianhe/vorum:latest'
+          if template.count(placeholder) != 2:
+              raise SystemExit('Expected an image placeholder for both services.')
+          path.write_text(template.replace(placeholder, f'{os.environ["IMAGE"]}:{os.environ["VERSION"]}'))
+          PY
+      - name: Upload the Compose file
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" compose.release.yaml --clobber

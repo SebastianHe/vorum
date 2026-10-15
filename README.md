@@ -43,14 +43,38 @@ Anhängen benötigen ein angemeldetes, bestätigtes Konto.
 
 ## In wenigen Minuten ausprobieren
 
-Du brauchst Docker mit Docker Compose, eine lokale Kopie dieses Projekts und für
-spätere Bestätigungsmails bzw. Benachrichtigungen einen SMTP-Zugang.
+Du brauchst Docker mit Docker Compose und für spätere Bestätigungsmails bzw.
+Benachrichtigungen einen SMTP-Zugang.
 
-Im Projektverzeichnis:
+### Mit fertigem Docker-Image
+
+Nach der ersten erfolgreichen Image-Veröffentlichung findest du unter
+[Releases](https://github.com/SebastianHe/vorum/releases) eine `compose.release.yaml`
+als Download. Lade die Datei der gewünschten Version in ein eigenes Verzeichnis,
+beispielsweise `vorum`, und wechsle dorthin. Ein Klonen des Quellcodes ist nicht nötig.
+Die Datei aus den Release-Assets verweist auf die konkrete Image-Version.
+
+```sh
+docker compose -f compose.release.yaml pull
+docker compose -f compose.release.yaml up -d
+```
+
+Die Images liegen unter `ghcr.io/sebastianhe/vorum` und unterstützen Linux auf
+AMD64 und ARM64. Webserver und Benachrichtigungs-Worker werden gemeinsam gestartet.
+Standardmäßig ist Port 8000 nur am lokalen Rechner (`127.0.0.1`) erreichbar.
+Für Zugriff von einem anderen Rechner oder von einem Proxy-Container muss die
+Port-/Netzwerkkonfiguration angepasst werden; Details stehen weiter unten.
+
+### Aus dem Quellcode bauen
+
+Alternativ eine Kopie dieses Projekts herunterladen oder klonen und im
+Projektverzeichnis starten:
 
 ```sh
 docker compose up --build -d
 ```
+
+### Erstes Forum einrichten
 
 Öffne [localhost:8000](http://localhost:8000) und richte dein erstes Forum ein:
 
@@ -68,8 +92,8 @@ docker compose up --build -d
 > Verwaltungsrechte für die gesamte Installation. Führe die Einrichtung lokal
 > oder hinter einer Zugriffsbeschränkung durch, bevor du Vorum öffentlich freigibst.
 
-Die Compose-Datei baut das Image aus dem Quellcode. Ein bereits veröffentlichtes
-Container-Image wird für diesen Schnellstart nicht vorausgesetzt.
+Der Start aus dem Quellcode funktioniert auch vor der ersten Veröffentlichung
+eines fertigen Images.
 
 ## Mehrere Foren betreiben
 
@@ -85,6 +109,10 @@ zweiten lokalen Test kann ein weiteres Forum den Hostnamen `127.0.0.1` bekommen.
 
 ## Starten, stoppen und aktualisieren
 
+Die folgenden Befehle gelten für die Installation aus dem Quellcode. Mit einer
+Release-Datei ergänze jeweils `-f compose.release.yaml`, also beispielsweise
+`docker compose -f compose.release.yaml logs -f`.
+
 ```sh
 docker compose ps                 # Status anzeigen
 docker compose logs -f            # Logs verfolgen; Strg+C beendet die Anzeige
@@ -96,7 +124,22 @@ Alternativ steht unter macOS/Linux `./server.sh` mit den Befehlen `start`, `stop
 `restart`, `status` und `logs` zur Verfügung. `start` und `restart` bauen das Image
 bei Bedarf aus dem aktuellen Quellcode.
 
-Nach einer Aktualisierung der Projektdateien:
+**Fertige Images aktualisieren:** Zuerst beide Dienste stoppen und das gesamte
+Datenvolume sichern (siehe [Betriebsanleitung](docs/operations.md)). Anschließend
+die `compose.release.yaml` der neuen Version aus den Release-Assets laden und
+im **gleichen Verzeichnis** ersetzen. Dann:
+
+```sh
+docker compose -f compose.release.yaml pull
+docker compose -f compose.release.yaml up -d
+```
+
+Falls du mit `VORUM_IMAGE` eine Version überschreibst, passe diese ebenfalls an.
+Das Projektverzeichnis beibehalten, damit Compose dasselbe benannte Volume nutzt.
+Eine ältere Programmversion kann nach Datenbankänderungen ein passendes Backup
+erfordern.
+
+**Aus dem Quellcode aktualisieren:** Nach einer Aktualisierung der Projektdateien:
 
 ```sh
 # Zuerst Daten sichern, siehe Betriebshinweise.
@@ -114,6 +157,24 @@ Volume und damit die gespeicherten Daten.
 | `COOKIE_SECURE` | `1` für sicheren Cookie-Versand über HTTPS; lokal über HTTP ist der Standard `0`. Die Compose-Datei übernimmt den Wert aus der Umgebung oder einer lokalen `.env`. |
 | `VORUM_DATA`    | Datenverzeichnis, lokal standardmäßig `data/`, im Image `/app/data`. Webserver und Worker müssen auf denselben Datenbestand zugreifen.                             |
 | `SECRET_KEY`    | Optionaler Sitzungsschlüssel. Ohne Vorgabe erzeugt Vorum einen persistenten Schlüssel im Datenverzeichnis.                                                         |
+
+Die Release-Compose-Datei unterstützt zusätzlich eine lokale `.env`, zum Beispiel:
+
+```dotenv
+VORUM_IMAGE=ghcr.io/sebastianhe/vorum:0.1.0
+VORUM_BIND=127.0.0.1
+VORUM_PORT=8000
+COOKIE_SECURE=0
+```
+
+Die Versionsnummer muss bereits veröffentlicht sein. `VORUM_IMAGE` überschreibt
+das Image für **beide Dienste**. Ohne diese Variable verwendet die Datei aus dem
+Release dessen feste Version; die Vorlage aus dem Repository verwendet `latest`.
+`VORUM_PORT` ändert den Port auf dem Host. Für gezielten Zugriff über das Netzwerk
+kann `VORUM_BIND` auf eine passende Host-IP oder `0.0.0.0` gesetzt werden; dabei
+Firewall, HTTPS und den Schutz der Ersteinrichtung berücksichtigen. Ein Proxy auf
+dem Host kann den Standard `127.0.0.1` nutzen. Ein Proxy in einem eigenen Container
+benötigt eine passende Docker-Netzwerkanbindung.
 
 `VORUM_DATA` und `SECRET_KEY` werden von der Anwendung gelesen. Wenn du sie im
 Docker-Betrieb überschreiben möchtest, musst du sie bei **beiden Diensten** unter
@@ -168,6 +229,11 @@ python -m pytest -q
 Die Tests verwenden temporäre Datenbanken und einen Test-Mailausgang.
 Hinweise zum optionalen Browser-Test und zu Beiträgen findest du in
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Docker-Releases veröffentlichen
+
+Die [Release-Anleitung](docs/releases.md) erklärt die einmalige Einrichtung auf
+GitHub, die Veröffentlichung einer Version und das Prüfen öffentlicher Downloads.
 
 ## Mitmachen und Sicherheit
 

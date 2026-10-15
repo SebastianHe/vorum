@@ -13,10 +13,11 @@ standardmäßig unter `data/` im Arbeitsverzeichnis.
 Für eine einfache konsistente Dateisicherung:
 
 1. Webserver und Benachrichtigungs-Worker stoppen, mit Docker beispielsweise
-   `docker compose stop`.
+   `docker compose stop` bzw. `docker compose -f compose.release.yaml stop`.
 2. Den gesamten Inhalt des Datenvolumes bzw. Datenverzeichnisses in ein geschütztes
    Backup kopieren. SQLite-WAL-Dateien gehören zum Datenbestand.
-3. Dienste mit `docker compose start` wieder starten.
+3. Dienste mit `docker compose start` bzw.
+   `docker compose -f compose.release.yaml start` wieder starten.
 
 Eine Wiederherstellung erfolgt bei gestoppten Diensten in ein leeres Datenvolume.
 Dateirechte müssen zum Container-Benutzer (UID `10001`) passen. Anschließend beide
@@ -28,6 +29,12 @@ Bestätigungscodes und Sitzungsschlüssel machen Datenvolume und Backups vertrau
 Sie gehören niemals ins Repository, in ein Docker-Image oder in öffentliche Issues.
 
 ## Updates
+
+Bei fertigen Images nach dem Backup die neue Release-Compose-Datei im gleichen
+Projektverzeichnis ablegen, dann `docker compose -f compose.release.yaml pull`
+und `docker compose -f compose.release.yaml up -d` ausführen. Ein eventuell in
+`.env` gesetztes `VORUM_IMAGE` ebenfalls auf die neue Version setzen. Eine
+unveränderte, fest gesetzte Version wird durch `pull` allein nicht aktualisiert.
 
 Vor jeder Aktualisierung ein vollständiges Backup anlegen und Hinweise zur neuen
 Version lesen. Bei einer aus dem Quellcode betriebenen Docker-Installation nach
