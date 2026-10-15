@@ -41,18 +41,21 @@ Anwendungsfall. Die Auswahl eines Forums über den Hostnamen ersetzt keine
 Zugriffssperre: Forenübersicht und Beiträge sind öffentlich lesbar; Downloads von
 Anhängen benötigen ein angemeldetes, bestätigtes Konto.
 
-## In wenigen Minuten ausprobieren
+## Installation mit Docker (empfohlen)
 
-Du brauchst Docker mit Docker Compose und für spätere Bestätigungsmails bzw.
-Benachrichtigungen einen SMTP-Zugang.
+Für den Betrieb empfehlen wir das fertige Docker-Image aus der GitHub Container
+Registry: `ghcr.io/sebastianhe/vorum`. Du brauchst Docker mit Docker Compose und
+für Bestätigungsmails bzw. Benachrichtigungen einen SMTP-Zugang.
 
-### Mit fertigem Docker-Image
+Ein Klonen des Quellcodes und ein eigener Image-Build sind nicht erforderlich.
+Die Compose-Datei aus den Release-Assets verwendet die feste Version des jeweiligen
+Releases. Sie steht nach dem erfolgreichen Abschluss des Release-Workflows bereit.
 
-Nach der ersten erfolgreichen Image-Veröffentlichung findest du unter
-[Releases](https://github.com/SebastianHe/vorum/releases) eine `compose.release.yaml`
-als Download. Lade die Datei der gewünschten Version in ein eigenes Verzeichnis,
-beispielsweise `vorum`, und wechsle dorthin. Ein Klonen des Quellcodes ist nicht nötig.
-Die Datei aus den Release-Assets verweist auf die konkrete Image-Version.
+1. Öffne die [Releases](https://github.com/SebastianHe/vorum/releases) und wähle
+   eine reguläre Version aus.
+2. Lade unter **Assets** die Datei `compose.release.yaml` in ein eigenes
+   Verzeichnis herunter, beispielsweise `vorum`.
+3. Öffne ein Terminal in diesem Verzeichnis und starte Vorum:
 
 ```sh
 docker compose -f compose.release.yaml pull
@@ -64,15 +67,6 @@ AMD64 und ARM64. Webserver und Benachrichtigungs-Worker werden gemeinsam gestart
 Standardmäßig ist Port 8000 nur am lokalen Rechner (`127.0.0.1`) erreichbar.
 Für Zugriff von einem anderen Rechner oder von einem Proxy-Container muss die
 Port-/Netzwerkkonfiguration angepasst werden; Details stehen weiter unten.
-
-### Aus dem Quellcode bauen
-
-Alternativ eine Kopie dieses Projekts herunterladen oder klonen und im
-Projektverzeichnis starten:
-
-```sh
-docker compose up --build -d
-```
 
 ### Erstes Forum einrichten
 
@@ -92,9 +86,6 @@ docker compose up --build -d
 > Verwaltungsrechte für die gesamte Installation. Führe die Einrichtung lokal
 > oder hinter einer Zugriffsbeschränkung durch, bevor du Vorum öffentlich freigibst.
 
-Der Start aus dem Quellcode funktioniert auch vor der ersten Veröffentlichung
-eines fertigen Images.
-
 ## Mehrere Foren betreiben
 
 Als Super-Admin legst du weitere Foren mit eigenen Hostnamen an, etwa
@@ -109,22 +100,17 @@ zweiten lokalen Test kann ein weiteres Forum den Hostnamen `127.0.0.1` bekommen.
 
 ## Starten, stoppen und aktualisieren
 
-Die folgenden Befehle gelten für die Installation aus dem Quellcode. Mit einer
-Release-Datei ergänze jeweils `-f compose.release.yaml`, also beispielsweise
-`docker compose -f compose.release.yaml logs -f`.
+Die folgenden Befehle gelten für die empfohlene Installation mit der
+Release-Compose-Datei. Führe sie im Installationsverzeichnis aus.
 
 ```sh
-docker compose ps                 # Status anzeigen
-docker compose logs -f            # Logs verfolgen; Strg+C beendet die Anzeige
-docker compose stop               # Beide Dienste stoppen, Daten bleiben erhalten
-docker compose start              # Bestehende Container wieder starten
+docker compose -f compose.release.yaml ps       # Status anzeigen
+docker compose -f compose.release.yaml logs -f  # Logs verfolgen; Strg+C beendet die Anzeige
+docker compose -f compose.release.yaml stop     # Beide Dienste stoppen, Daten bleiben erhalten
+docker compose -f compose.release.yaml start    # Bestehende Container wieder starten
 ```
 
-Alternativ steht unter macOS/Linux `./server.sh` mit den Befehlen `start`, `stop`,
-`restart`, `status` und `logs` zur Verfügung. `start` und `restart` bauen das Image
-bei Bedarf aus dem aktuellen Quellcode.
-
-**Fertige Images aktualisieren:** Zuerst beide Dienste stoppen und das gesamte
+**Auf eine neue feste Version aktualisieren:** Zuerst beide Dienste stoppen und das gesamte
 Datenvolume sichern (siehe [Betriebsanleitung](docs/operations.md)). Anschließend
 die `compose.release.yaml` der neuen Version aus den Release-Assets laden und
 im **gleichen Verzeichnis** ersetzen. Dann:
@@ -139,16 +125,44 @@ Das Projektverzeichnis beibehalten, damit Compose dasselbe benannte Volume nutzt
 Eine ältere Programmversion kann nach Datenbankänderungen ein passendes Backup
 erfordern.
 
-**Aus dem Quellcode aktualisieren:** Nach einer Aktualisierung der Projektdateien:
+Das benannte Volume `vorum-data` enthält Datenbank, Uploads und Sitzungsschlüssel.
+Es bleibt beim normalen Stoppen erhalten.
+`docker compose -f compose.release.yaml down -v` entfernt das Volume und damit
+die gespeicherten Daten.
 
-```sh
-# Zuerst Daten sichern, siehe Betriebshinweise.
-docker compose up --build -d
+### Feste Versionen und `latest`
+
+Für nachvollziehbare Updates empfehlen wir eine feste Version, wie sie die
+Compose-Datei aus den Release-Assets bereits verwendet. Über `VORUM_IMAGE` in
+einer lokalen `.env` kannst du den gewünschten Image-Tag für beide Dienste wählen:
+
+| Beispiel                           | Verhalten                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------- |
+| `ghcr.io/sebastianhe/vorum:0.1.0`  | Konkrete Version; ein Wechsel auf eine neue Version erfolgt ausdrücklich.       |
+| `ghcr.io/sebastianhe/vorum:0.1`    | Wird bei regulären Veröffentlichungen innerhalb der Reihe `0.1.x` neu gesetzt.  |
+| `ghcr.io/sebastianhe/vorum:latest` | Wird bei jedem erfolgreichen Image-Upload eines regulären Releases neu gesetzt. |
+
+`latest` folgt der Reihenfolge erfolgreicher Uploads, ohne Versionsnummern zu
+vergleichen. Wird nach `v0.2.0` noch `v0.1.1` regulär veröffentlicht, zeigt
+`latest` anschließend auf `0.1.1`. Pre-releases wie `v0.3.0-rc.1`, normale Commits
+und CI-Builds verändern `latest` nicht. Die GitHub-Markierung „Latest release“
+steuert den Docker-Tag ebenfalls nicht.
+
+Wenn du bewusst `latest` verwenden möchtest, trage in `.env` ein:
+
+```dotenv
+VORUM_IMAGE=ghcr.io/sebastianhe/vorum:latest
 ```
 
-Das benannte Volume `vorum-data` enthält Datenbank, Uploads und Sitzungsschlüssel.
-Es bleibt beim normalen Stoppen erhalten. `docker compose down -v` entfernt das
-Volume und damit die gespeicherten Daten.
+Laufende Container aktualisieren sich dadurch nicht automatisch. Sichere vor
+einem Update die Daten wie oben beschrieben und führe dann aus:
+
+```sh
+docker compose -f compose.release.yaml pull
+docker compose -f compose.release.yaml up -d
+```
+
+Bei einer festen Version lädt `pull` allein keine neuere Versionsnummer.
 
 ### Konfiguration
 
@@ -199,7 +213,21 @@ Profilvorschläge, Beispielanfragen und Fehlercodes.
 
 ## Lokal entwickeln
 
-Python **3.9 oder neuer**; das Docker-Image verwendet Python 3.12:
+Für eigene Änderungen kannst du das Repository klonen und Vorum aus dem
+Quellcode starten. Die enthaltene `compose.yaml` baut das Image lokal:
+
+```sh
+docker compose up --build -d
+```
+
+Nach Änderungen am Quellcode denselben Befehl erneut ausführen. Für Status,
+Logs und Start/Stopp gelten hier die Compose-Befehle ohne
+`-f compose.release.yaml`. Unter macOS/Linux steht dafür auch `./server.sh` mit
+`start`, `stop`, `restart`, `status` und `logs` zur Verfügung; `start` und `restart`
+bauen das Image bei Bedarf neu.
+
+Alternativ ohne Docker mit Python **3.9 oder neuer** starten; das Docker-Image
+verwendet Python 3.12:
 
 ```sh
 python3 -m venv .venv
