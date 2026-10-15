@@ -1,0 +1,28 @@
+services:
+  vorum:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      COOKIE_SECURE: "${COOKIE_SECURE:-0}"
+    volumes:
+      - vorum-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  notification-worker:
+    build: .
+    command: ["flask", "--app", "vorum", "notification-worker"]
+    environment:
+      COOKIE_SECURE: "${COOKIE_SECURE:-0}"
+    volumes:
+      - vorum-data:/app/data
+    depends_on:
+      vorum:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  vorum-data:

@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="auth card">
+  <span class="eyebrow">{{ t('WILLKOMMEN BEI VORUM') }}</span>
+  <h1>{{ t('Dein Profil bestätigen') }}</h1>
+  <p class="muted">{{ t('Prüfe deinen Benutzernamen und entscheide, ob du den vorgeschlagenen Avatar übernehmen möchtest.') }}</p>
+  {% if error %}<p class="flash error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" class="form">
+    {{ token() }}
+    {% if user.username_suggestion %}<label>{{ t('Benutzername') }}<input name="username" value="{{ username }}" maxlength="25" required autocomplete="username"></label>
+    {% else %}<p>{{ t('Benutzername') }}: <strong>{{ user.username }}</strong></p>{% endif %}
+    {% if user.avatar_editable and user.avatar_suggestion_url %}
+    <img class="suggested-avatar" src="{{ user.avatar_suggestion_url }}" alt="{{ t('Vorgeschlagener Avatar') }}" referrerpolicy="no-referrer">
+    <label class="checkbox"><input type="checkbox" name="accept_avatar" checked> {{ t('Vorgeschlagenen Avatar übernehmen') }}</label>
+    {% endif %}
+    <button class="button">{{ t('Profil bestätigen und einloggen') }}</button>
+  </form>
+</section>
+{% endblock %}
