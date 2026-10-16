@@ -83,6 +83,8 @@ Weitere Hinweise stehen in [SECURITY.md](../SECURITY.md).
 
 ## E-Mail-Benachrichtigungen
 
+Alle System-E-Mails (Freischaltcodes, direkte Benachrichtigungen, Tages- und Wochenzusammenfassungen sowie Testmails) enthalten eine Text- und eine HTML-Version als `multipart/alternative`. Die HTML-Version übernimmt Forenname, Farbschema und gegebenenfalls das Logo; sie verwendet ein mobiles Layout mit Hell-/Dunkeldarstellung. Externe Bilder können im Mailprogramm blockiert sein, alle Inhalte bleiben auch ohne Logo lesbar. Bestätigungsmails erläutern die Code-Gültigkeit und den nächsten Schritt. Benachrichtigungen nennen den Abo-Grund und erklären, wo sich Abos ändern lassen. Zeitstempel der Beiträge folgen der Anzeigezeitzone des Forums. Bestätigungs- und Testmails verwenden die aktuelle Sprache, Benachrichtigungen die gespeicherte Sprache des Abos.
+
 Direkte Mails gehen nach dem erfolgreichen Speichern eines neuen Topics oder Beitrags über das SMTP des jeweiligen Forums an bestätigte Abonnenten. Eigene Beiträge, Bearbeitungen, Löschungen und fehlgeschlagene Veröffentlichungen lösen keine Mails aus. Ein Forum-Abo „nur neue Themen“ meldet den ersten Beitrag eines neuen Topics, keine späteren Antworten. Globale Benutzer haben separate Abos je Forum. Mails enthalten einen Textauszug und einen Link zum Beitrag; die Sprache wird beim Einstellen des Abos übernommen.
 
 Zusammenfassungen werden **täglich um 16:00 Uhr Europe/Berlin**, wöchentlich **samstags um 16:00 Uhr Europe/Berlin** verschickt. Sommer- und Winterzeit gelten automatisch. Uhrzeit, IANA-Zeitzone und Wochentag lassen sich unter **Backend → Einstellungen → Zusammenfassungen** ändern. Der Worker prüft jede Minute; nach einer Unterbrechung holt er fällige Zusammenfassungen nach.

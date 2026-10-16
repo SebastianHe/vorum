@@ -14,6 +14,8 @@ von Anfang an dabei.
 
 **MIT-lizenziert · Flask & SQLite · Deutsch / Englisch · Docker Compose**
 
+Weitere Informationen findest du auf [www.vorum.de](https://www.vorum.de).
+
 ## Was Vorum bietet
 
 - **Raum für gute Gespräche:** Themenbereiche, formatierte Beiträge, Anhänge und

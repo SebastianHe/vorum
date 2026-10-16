@@ -1,0 +1,21 @@
+{{ name }} — {{ title }}
+
+{% for paragraph in paragraphs %}{{ paragraph }}
+
+{% endfor %}{% if code %}{{ t('Dein Freischaltcode') }}: {{ code }}
+{{ t('Gültig für 15 Minuten.') }}
+
+{% endif %}{% for post in posts %}{{ post.title }}
+{{ post.author }} · {{ post.date }}
+
+{{ post.excerpt }}
+
+{{ t('Beitrag lesen') }}: {{ post.url }}
+
+{% endfor %}{{ action_label }}: {{ action_url }}
+
+{% for note in notes %}{{ note }}
+
+{% endfor %}{{ t('Diese E-Mail wurde automatisch versendet.') }}
+{{ name }}: {{ origin }}/
+Vorum / {{ t('Raum für gute Gespräche.') }}

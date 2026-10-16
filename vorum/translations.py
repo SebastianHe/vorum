@@ -144,3 +144,23 @@ EN.update({
     'Gäste dürfen das Forum sehen':'Allow guests to view the forum',
     'Gäste dürfen die Themen sehen':'Allow guests to view topics',
 })
+
+EN.update({
+    'Beitrag lesen': 'Read post',
+    'Forum öffnen': 'Open forum',
+    'Diese E-Mail wurde automatisch versendet.': 'This email was sent automatically.',
+    'Falls der Button nicht funktioniert, öffne diesen Link im Browser:': 'If the button does not work, open this link in your browser:',
+    'Du hast eine Bestätigung deiner E-Mail-Adresse angefordert.': 'You requested verification of your email address.',
+    'E-Mail-Adresse:': 'Email address:',
+    'Öffne die Bestätigungsseite und gib dort den fünfstelligen Code ein. Melde dich bei Bedarf zuerst mit deinem Konto an.': 'Open the verification page and enter the five-digit code. Sign in to your account first if needed.',
+    'Der Code ist ab dem Versand 15 Minuten gültig. Wenn du einen neuen Code anforderst, verliert der bisherige Code seine Gültigkeit.': 'The code is valid for 15 minutes after sending. If you request a new code, the previous code will no longer work.',
+    'Gib diesen Code nicht weiter. Falls du diese Bestätigung nicht angefordert hast, kannst du diese E-Mail ignorieren. Ohne Eingabe des Codes wird die E-Mail-Adresse nicht bestätigt.': 'Do not share this code. If you did not request this verification, you can ignore this email. The email address will only be verified after the code is entered.',
+    'Diese Nachricht wurde über die gespeicherten SMTP-Einstellungen versendet. Darüber werden auch Bestätigungsmails und abonnierte Benachrichtigungen verschickt.': 'This message was sent using the saved SMTP settings. These settings are also used for verification emails and subscribed notifications.',
+    'Empfänger:': 'Recipient:',
+    'Diese Testmail wurde im Backend angefordert. Du musst nichts weiter tun.': 'This test email was requested in the administration area. No further action is required.',
+    'In deinem abonnierten Forum oder Thema gibt es Neuigkeiten.': 'There is news in a forum or topic you subscribe to.',
+    'Hier findest du neue, noch nicht gelesene Beiträge aus deinen Abonnements.': 'Here are new, unread posts from your subscriptions.',
+    'Beiträge in dieser E-Mail:': 'Posts in this email:',
+    'Du erhältst diese E-Mail, weil du Benachrichtigungen für das Forum oder ein Thema abonniert hast.': 'You are receiving this email because you subscribed to notifications for the forum or a topic.',
+    'Die Texte sind Auszüge. Über „Beitrag lesen“ gelangst du zum vollständigen Beitrag und kannst im Forum antworten.': 'The texts are excerpts. Select “Read post” to view the full post and reply in the forum.',
+})

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="{{ language }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{ title }} · {{ name }}</title>
+<style>
+@media (prefers-color-scheme:dark){
+  body,.mail-bg{background-color:#101820!important;color:#e4ecf2!important}
+  .mail-card{background-color:#19242f!important;border-color:#2d3c49!important;color:#e4ecf2!important}
+  .mail-soft{background-color:#22313d!important;color:#e4ecf2!important}
+  .mail-muted{color:#9aabb9!important}
+  .mail-link{color:#90e0ef!important}
+}
+@media only screen and (max-width:600px){.mail-padding{padding:24px 20px!important}.mail-outer{padding:20px 10px!important}}
+</style>
+</head>
+<body style="margin:0;background-color:#f5f7fa;color:#172c3d;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;line-height:1.6;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" class="mail-bg" style="background-color:#f5f7fa;">
+<tr><td align="center" class="mail-outer" style="padding:40px 16px;">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px;table-layout:fixed;">
+<tr><td class="mail-card mail-padding" style="padding:24px 32px;background-color:#fff;border:1px solid #e4eaf0;border-bottom:4px solid {{ brand }};border-radius:13px 13px 0 0;">
+<a class="mail-link" href="{{ origin }}/" style="color:#172c3d;text-decoration:none;font-size:20px;font-weight:750;overflow-wrap:anywhere;">
+{% if logo_url %}<img src="{{ logo_url }}" width="42" height="42" alt="" style="vertical-align:middle;object-fit:contain;border:0;margin-right:12px;">{% else %}<span style="display:inline-block;padding:0 10px;background-color:{{ brand }};color:#fff;border-radius:12px;font-size:30px;vertical-align:middle;margin-right:12px;">v<span style="color:#90e0ef;">·</span></span>{% endif %}{{ name }}</a>
+</td></tr>
+<tr><td class="mail-card mail-padding" style="padding:32px;background-color:#fff;border:1px solid #e4eaf0;border-top:0;border-radius:0 0 13px 13px;overflow-wrap:anywhere;word-break:break-word;">
+<h1 style="font-size:28px;line-height:1.25;letter-spacing:-1px;margin:0 0 24px;">{{ title }}</h1>
+{% for paragraph in paragraphs %}<p style="margin:0 0 18px;">{{ paragraph }}</p>{% endfor %}
+{% if code %}<div class="mail-soft" style="padding:24px;margin:24px 0;background-color:#edf3f7;border-radius:9px;text-align:center;">
+<div style="font-size:13px;">{{ t('Dein Freischaltcode') }}</div>
+<div style="font-family:monospace;font-size:36px;letter-spacing:8px;font-weight:700;">{{ code }}</div>
+<div class="mail-muted" style="font-size:13px;color:#71808e;">{{ t('Gültig für 15 Minuten.') }}</div>
+</div>{% endif %}
+{% for post in posts %}<div class="mail-soft" style="padding:20px;margin:24px 0;background-color:#edf3f7;border-radius:9px;">
+<h2 style="margin:0 0 8px;font-size:19px;">{{ post.title }}</h2>
+<p class="mail-muted" style="font-size:13px;color:#71808e;margin:0 0 16px;">{{ post.author }} · {{ post.date }}</p>
+<p style="white-space:pre-wrap;margin:0 0 16px;">{{ post.excerpt }}</p>
+<a class="mail-link" href="{{ post.url }}" style="color:{{ brand }};font-weight:600;">{{ t('Beitrag lesen') }}</a>
+</div>{% endfor %}
+<p style="margin:28px 0;"><a href="{{ action_url }}" style="display:inline-block;background-color:{{ brand }};border:1px solid {{ brand }};border-radius:9px;padding:12px 20px;color:#fff;text-decoration:none;font-weight:600;">{{ action_label }}</a></p>
+<p class="mail-muted" style="font-size:12px;color:#71808e;">{{ t('Falls der Button nicht funktioniert, öffne diesen Link im Browser:') }}<br><a class="mail-link" href="{{ action_url }}" style="color:{{ brand }};overflow-wrap:anywhere;word-break:break-all;">{{ action_url }}</a></p>
+{% for note in notes %}<p class="mail-muted" style="font-size:13px;color:#71808e;margin:18px 0 0;">{{ note }}</p>{% endfor %}
+</td></tr>
+<tr><td align="center" class="mail-muted" style="padding:24px 16px;color:#71808e;font-size:12px;">
+<p style="margin:0 0 8px;">{{ t('Diese E-Mail wurde automatisch versendet.') }}</p>
+<a class="mail-link" href="{{ origin }}/" style="color:#71808e;">{{ name }}</a><br>
+Vorum / {{ t('Raum für gute Gespräche.') }}
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>

@@ -9,7 +9,6 @@ import sqlite3
 import time
 import unicodedata
 from datetime import datetime, timezone
-from email.message import EmailMessage
 from functools import wraps
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -22,7 +21,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.exceptions import HTTPException
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
-from .mail import deliver_mail
+from .mail import deliver_mail, system_message
 
 THEMES = {
     'default': ('#0077b6', '#03045e', '#caf0f8'),
@@ -269,12 +268,16 @@ def create_app(config=None):
             return False
         code = f'{secrets.randbelow(100000):05d}'
         target = user['pending_email'] or user['email']
-        message = EmailMessage()
-        message['Subject'] = 'Vorum — ' + tr('Dein Freischaltcode')
-        message['To'] = target
         tenant = g.tenant
-        message['From'] = tenant['mail_from'] if tenant and tenant['mail_from'] else 'vorum@localhost'
-        message.set_content(tr('Dein Freischaltcode') + ': ' + code + '\n\n' + tr('Gültig für 15 Minuten.'))
+        message = system_message(
+            tenant, target, (tenant['name'] if tenant else 'Vorum') + ' — ' + tr('Dein Freischaltcode'),
+            language=g.lang, origin=request.url_root, title=tr('E-Mail bestätigen'), code=code,
+            paragraphs=[tr('Du hast eine Bestätigung deiner E-Mail-Adresse angefordert.'),
+                        tr('E-Mail-Adresse:') + ' ' + target,
+                        tr('Öffne die Bestätigungsseite und gib dort den fünfstelligen Code ein. Melde dich bei Bedarf zuerst mit deinem Konto an.')],
+            action_label=tr('E-Mail bestätigen'), action_path=url_for('verify'),
+            notes=[tr('Der Code ist ab dem Versand 15 Minuten gültig. Wenn du einen neuen Code anforderst, verliert der bisherige Code seine Gültigkeit.'),
+                   tr('Gib diesen Code nicht weiter. Falls du diese Bestätigung nicht angefordert hast, kannst du diese E-Mail ignorieren. Ohne Eingabe des Codes wird die E-Mail-Adresse nicht bestätigt.')])
         try:
             deliver_mail(tenant, message, code=code)
         except (OSError,smtplib.SMTPException,ValueError):
@@ -975,11 +978,14 @@ def create_app(config=None):
                     return fail('Bitte eine gültige E-Mail-Adresse eingeben.')
                 if not g.tenant['smtp_host'] or not g.tenant['mail_from']:
                     return fail('Bitte zuerst SMTP-Server und Mail-Absender speichern.')
-                message=EmailMessage()
-                message['Subject']=tr('Vorum Testmail')
-                message['From']=g.tenant['mail_from']
-                message['To']=recipient
-                message.set_content(tr('Diese Testmail bestätigt, dass der E-Mail-Versand deines Forums funktioniert.'))
+                message=system_message(
+                    g.tenant, recipient, g.tenant['name'] + ' — ' + tr('Vorum Testmail'),
+                    language=g.lang, origin=request.url_root, title=tr('Vorum Testmail'),
+                    paragraphs=[tr('Diese Testmail bestätigt, dass der E-Mail-Versand deines Forums funktioniert.'),
+                                tr('Diese Nachricht wurde über die gespeicherten SMTP-Einstellungen versendet. Darüber werden auch Bestätigungsmails und abonnierte Benachrichtigungen verschickt.'),
+                                tr('Empfänger:') + ' ' + recipient],
+                    action_label=tr('Forum öffnen'),
+                    notes=[tr('Diese Testmail wurde im Backend angefordert. Du musst nichts weiter tun.')])
                 try:
                     deliver_mail(g.tenant,message,kind='test')
                 except Exception:

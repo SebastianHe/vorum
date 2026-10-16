@@ -4,7 +4,6 @@ import smtplib
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
 from html import unescape
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -14,7 +13,7 @@ import click
 from flask import Blueprint, abort, current_app, flash, g, redirect, request, url_for
 
 from . import db, now, one, require_login, rows
-from .mail import deliver_mail
+from .mail import deliver_mail, system_message
 from .translations import EN
 
 FORUM_MODES = (
@@ -84,17 +83,25 @@ def _send(tenant, user, subscription, posts, kind):
     subject = f"{tenant['name']} — {label}"
     if kind in ('immediate', 'new_topic'):
         subject += ': ' + posts[0]['title']
-    message = EmailMessage()
-    # Titles/forum names are user input and must never introduce mail headers.
-    message['Subject'] = re.sub(r'[\r\n]+', ' ', subject)
-    message['From'] = tenant['mail_from'] or 'vorum@localhost'
-    message['To'] = user['email']
-    parts = [label, tenant['name'], '']
+    entries = []
     for post in posts:
-        parts.extend([post['title'], f"{post['username']} · {post['created_at']}", _excerpt(post['body']),
-                      f"{origin}/topics/{post['topic_slug']}#{post['slug']}", ''])
-    parts.extend([tr('Benachrichtigungen kannst du oben rechts im Forum oder Topic ändern.'), origin + '/'])
-    message.set_content('\n'.join(parts))
+        date = datetime.fromisoformat(post['created_at']).astimezone(ZoneInfo(tenant['timezone']))
+        entries.append(dict(title=post['title'], author=post['username'],
+                            date=date.strftime('%Y-%m-%d · %H:%M %Z' if subscription['language'] == 'en'
+                                               else '%d.%m.%Y · %H:%M %Z'),
+                            excerpt=_excerpt(post['body']),
+                            url=f"{origin}/topics/{post['topic_slug']}#{post['slug']}"))
+    introduction = tr('In deinem abonnierten Forum oder Thema gibt es Neuigkeiten.')
+    if kind in ('daily', 'weekly'):
+        introduction = tr('Hier findest du neue, noch nicht gelesene Beiträge aus deinen Abonnements.')
+    message = system_message(
+        tenant, user['email'], subject, language=subscription['language'], origin=origin, title=label,
+        paragraphs=[introduction, tr('Beiträge in dieser E-Mail:') + ' ' + str(len(posts))],
+        action_label=tr('Forum öffnen'), posts=entries,
+        notes=[tr('Du erhältst diese E-Mail, weil du Benachrichtigungen für das Forum oder ein Thema abonniert hast.'),
+               tr('Die Texte sind Auszüge. Über „Beitrag lesen“ gelangst du zum vollständigen Beitrag und kannst im Forum antworten.'),
+               tr('Benachrichtigungen kannst du oben rechts im Forum oder Topic ändern.'),
+               tr('Forum- und Topic-Abos gelten unabhängig voneinander.')])
     deliver_mail(tenant, message, kind=kind, post_ids=[post['id'] for post in posts])
 
 
