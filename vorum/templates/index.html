@@ -1,4 +1,7 @@
 {% extends 'base.html' %}{% block content %}
+{% if g.user and g.user.role in ['admin','superadmin'] and not g.tenant.smtp_host %}
+<div role="alert" class="flash warning"><strong>{{ t('Noch kein SMTP-Server hinterlegt.') }}</strong> {{ t('Bitte richte den E-Mail-Versand ein, damit Bestätigungen und Benachrichtigungen versendet werden können.') }} <a href="{{ url_for('admin_mail') }}">{{ t('E-Mail-Versand einrichten') }}</a></div>
+{% endif %}
 <section class="hero"><div><span class="eyebrow">{{ g.tenant['intro_eyebrow_' ~ g.lang] }}</span><h1>{{ g.tenant['intro_title_' ~ g.lang] }}</h1><p>{{ g.tenant['intro_description_' ~ g.lang] }}</p></div><div class="heading-actions">{{ notification_picker() }}<a class="button" href="{{ url_for('new_topic') }}"><span>＋</span> {{ t('Neues Topic') }}</a></div></section>
 <div class="section-heading"><h2>{{ t('Aktuelle Gespräche') }} <span class="count">{{ topics|length }}</span></h2><span class="muted">{{ t('Neueste Aktivität zuerst') }}</span></div>
 <section class="topic-list card"><div class="topic-header"><span>{{ t('Thema') }}</span><span>{{ t('Mitwirkende') }}</span><span>{{ t('Antworten') }}</span><span>{{ t('Views') }}</span><span>{{ t('Letzte Aktivität') }}</span></div>

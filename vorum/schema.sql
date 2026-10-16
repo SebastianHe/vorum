@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS tenants (
  registration_allowed INTEGER NOT NULL DEFAULT 1, registration_url TEXT NOT NULL DEFAULT '',
  registration_terms TEXT NOT NULL DEFAULT '', login_allowed INTEGER NOT NULL DEFAULT 1,
  login_url TEXT NOT NULL DEFAULT '',
+ search_indexing_allowed INTEGER NOT NULL DEFAULT 1,
+ guests_can_view_forum INTEGER NOT NULL DEFAULT 1,
+ guests_can_view_topics INTEGER NOT NULL DEFAULT 1,
  digest_time TEXT NOT NULL DEFAULT '16:00', digest_timezone TEXT NOT NULL DEFAULT 'Europe/Berlin',
  digest_weekday INTEGER NOT NULL DEFAULT 5
 );

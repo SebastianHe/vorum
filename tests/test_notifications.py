@@ -331,11 +331,11 @@ def test_existing_database_migrates_and_schedule_is_validated(app, setup):
     assert (tenant['digest_time'], tenant['digest_timezone'], tenant['digest_weekday']) == ('16:00', 'Europe/Berlin', 5)
     assert any(column['name'] == 'visited_at' for column in query(app, 'PRAGMA table_info(reads)', all=True))
     data = {'name': 'Community', 'digest_time': '19:30', 'digest_timezone': 'Atlantic/Canary', 'digest_weekday': '2'}
-    assert post(setup, '/admin/settings', data).status_code == 302
+    assert post(setup, '/admin/settings/mail', data).status_code == 302
     tenant = query(app, 'SELECT * FROM tenants WHERE name=?', ('Community',))
     assert (tenant['digest_time'], tenant['digest_timezone'], tenant['digest_weekday']) == ('19:30', 'Atlantic/Canary', 2)
     for bad in [{'digest_timezone': 'Invalid/Zone'}, {'digest_weekday': '7'}, {'digest_time': '25:61'}]:
-        post(setup, '/admin/settings', {**data, **bad})
+        post(setup, '/admin/settings/mail', {**data, **bad})
         assert query(app, 'SELECT digest_time FROM tenants WHERE name=?', ('Community',))['digest_time'] == '19:30'
 
 

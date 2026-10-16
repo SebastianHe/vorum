@@ -170,6 +170,9 @@ def create_app(config=None):
                           for field, value in FORUM_INTRO_DEFAULTS.items()},
                         'timezone':"TEXT NOT NULL DEFAULT 'UTC'",
                         'logo':"TEXT NOT NULL DEFAULT ''",
+                        'search_indexing_allowed':'INTEGER NOT NULL DEFAULT 1',
+                        'guests_can_view_forum':'INTEGER NOT NULL DEFAULT 1',
+                        'guests_can_view_topics':'INTEGER NOT NULL DEFAULT 1',
                         'registration_allowed':'INTEGER NOT NULL DEFAULT 1', 'registration_url':"TEXT NOT NULL DEFAULT ''",
                         'registration_terms':"TEXT NOT NULL DEFAULT ''", 'login_allowed':'INTEGER NOT NULL DEFAULT 1', 'login_url':"TEXT NOT NULL DEFAULT ''",
                         'digest_time':"TEXT NOT NULL DEFAULT '16:00'", 'digest_timezone':"TEXT NOT NULL DEFAULT 'Europe/Berlin'",
@@ -213,6 +216,12 @@ def create_app(config=None):
         if g.user and g.user['profile_pending']:
             g.user = None
             session.pop('user_id', None)
+
+        guest_endpoints = {'register','login','logout','verify','resend','static','language','forum_branding','robots'}
+        if g.tenant and not g.user and request.endpoint is not None:
+            if (not g.tenant['guests_can_view_forum'] and request.endpoint not in guest_endpoints
+                    or not g.tenant['guests_can_view_topics'] and request.endpoint == 'topic'):
+                return redirect(url_for('login', next=request.full_path.rstrip('?')))
 
     @app.teardown_appcontext
     def close_db(error):
@@ -285,6 +294,11 @@ def create_app(config=None):
     def language(lang):
         session['lang'] = lang if lang in ('de','en') else 'de'
         return redirect(safe_next(request.form.get('next')))
+
+    @app.get('/robots.txt')
+    def robots():
+        rule='Allow: /' if g.tenant['search_indexing_allowed'] else 'Disallow: /'
+        return app.response_class('User-agent: *\n' + rule + '\n', mimetype='text/plain')
 
     @app.get('/')
     def index():
@@ -923,11 +937,59 @@ def create_app(config=None):
             forum_timezone=request.form.get('timezone',g.tenant['timezone']).strip()
             if forum_timezone not in timezones:
                 return fail('Bitte eine gültige Zeitzone wählen.')
-            mail_from=request.form.get('mail_from','').strip()
-            security=request.form.get('smtp_security','starttls')
             registration_url=request.form.get('registration_url','').strip()
             login_url=request.form.get('login_url','').strip()
             terms=request.form.get('registration_terms','').strip()
+            if not name or len(name)>100:
+                return fail('Bitte Einstellungen prüfen.')
+            if (registration_url and not valid_http_url(registration_url)) or (login_url and not valid_http_url(login_url)) or len(terms)>50000:
+                return fail('Bitte gültige HTTP-/HTTPS-URLs und einen AGB-Text mit maximal 50000 Zeichen eingeben.')
+            db().execute('UPDATE tenants SET name=?,timezone=?,registration_allowed=?,registration_url=?,registration_terms=?,login_allowed=?,login_url=? WHERE id=?',
+                (name,forum_timezone,int(request.form.get('registration_allowed')=='on'),registration_url,terms,
+                 int(request.form.get('login_allowed')=='on'),login_url,g.tenant['id']))
+            db().commit()
+            flash(tr('Gespeichert.'),'success')
+            return redirect(url_for('admin_settings'))
+        return render_template('admin.html',section='settings',timezones=timezones)
+
+    @app.route('/admin/settings/access',methods=['GET','POST'])
+    @role_required('superadmin','admin')
+    def admin_access():
+        if request.method=='POST':
+            fields=('search_indexing_allowed','guests_can_view_forum','guests_can_view_topics')
+            db().execute('UPDATE tenants SET ' + ','.join(field+'=?' for field in fields) + ' WHERE id=?',
+                         (*[int(request.form.get(field)=='on') for field in fields],g.tenant['id']))
+            db().commit()
+            flash(tr('Gespeichert.'),'success')
+            return redirect(url_for('admin_access'))
+        return render_template('admin.html',section='access')
+
+    @app.route('/admin/settings/mail',methods=['GET','POST'])
+    @role_required('superadmin','admin')
+    def admin_mail():
+        timezones = ['UTC'] + sorted(available_timezones() - {'UTC'})
+        if request.method=='POST':
+            if request.form.get('action')=='test':
+                recipient=request.form.get('recipient',g.user['email']).strip()
+                if not valid_email(recipient):
+                    return fail('Bitte eine gültige E-Mail-Adresse eingeben.')
+                if not g.tenant['smtp_host'] or not g.tenant['mail_from']:
+                    return fail('Bitte zuerst SMTP-Server und Mail-Absender speichern.')
+                message=EmailMessage()
+                message['Subject']=tr('Vorum Testmail')
+                message['From']=g.tenant['mail_from']
+                message['To']=recipient
+                message.set_content(tr('Diese Testmail bestätigt, dass der E-Mail-Versand deines Forums funktioniert.'))
+                try:
+                    deliver_mail(g.tenant,message,kind='test')
+                except Exception:
+                    app.logger.warning('Test mail delivery failed')
+                    flash(tr('Testmail konnte nicht versendet werden. Bitte SMTP-Einstellungen prüfen.'),'error')
+                else:
+                    flash(tr('Testmail wurde versendet.'),'success')
+                return redirect(url_for('admin_mail'))
+            mail_from=request.form.get('mail_from','').strip()
+            security=request.form.get('smtp_security','starttls')
             try:
                 port=int(request.form.get('smtp_port','587'))
                 assert 1<=port<=65535
@@ -942,19 +1004,16 @@ def create_app(config=None):
                 ZoneInfo(digest_timezone)
             except (ValueError,ZoneInfoNotFoundError):
                 return fail('Bitte eine gültige Uhrzeit, Zeitzone und einen Wochentag wählen.')
-            if not name or len(name)>100 or security not in ('starttls','ssl','plain') or (mail_from and not valid_email(mail_from)):
+            if security not in ('starttls','ssl','plain') or (mail_from and not valid_email(mail_from)):
                 return fail('Bitte Einstellungen prüfen.')
-            if (registration_url and not valid_http_url(registration_url)) or (login_url and not valid_http_url(login_url)) or len(terms)>50000:
-                return fail('Bitte gültige HTTP-/HTTPS-URLs und einen AGB-Text mit maximal 50000 Zeichen eingeben.')
             password=request.form.get('smtp_password') or g.tenant['smtp_password']
-            db().execute('UPDATE tenants SET name=?,timezone=?,smtp_host=?,smtp_port=?,smtp_user=?,smtp_password=?,smtp_security=?,mail_from=?,registration_allowed=?,registration_url=?,registration_terms=?,login_allowed=?,login_url=?,digest_time=?,digest_timezone=?,digest_weekday=? WHERE id=?',
-                (name,forum_timezone,request.form.get('smtp_host','').strip(),port,request.form.get('smtp_user','').strip(),password,security,mail_from,
-                 int(request.form.get('registration_allowed')=='on'),registration_url,terms,int(request.form.get('login_allowed')=='on'),login_url,
-                 digest_time,digest_timezone,digest_weekday,g.tenant['id']))
+            db().execute('UPDATE tenants SET smtp_host=?,smtp_port=?,smtp_user=?,smtp_password=?,smtp_security=?,mail_from=?,digest_time=?,digest_timezone=?,digest_weekday=? WHERE id=?',
+                (request.form.get('smtp_host','').strip(),port,request.form.get('smtp_user','').strip(),password,
+                 security,mail_from,digest_time,digest_timezone,digest_weekday,g.tenant['id']))
             db().commit()
             flash(tr('Gespeichert.'),'success')
-            return redirect(url_for('admin_settings'))
-        return render_template('admin.html',section='settings',timezones=timezones)
+            return redirect(url_for('admin_mail'))
+        return render_template('admin.html',section='mail',timezones=timezones)
 
     from .api import register_api
     register_api(app, tr, send_code)
@@ -962,6 +1021,8 @@ def create_app(config=None):
 
     @app.after_request
     def security_headers(response):
+        if g.get('tenant') and not g.tenant['search_indexing_allowed']:
+            response.headers['X-Robots-Tag']='noindex, nofollow'
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['X-Frame-Options']='DENY'
         response.headers['Referrer-Policy']='same-origin'

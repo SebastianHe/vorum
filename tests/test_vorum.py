@@ -101,10 +101,40 @@ def test_all_pages_and_languages(app,setup):
     post_slug=query(app,'SELECT slug FROM posts')['slug']
     user_slug=query(app,'SELECT slug FROM users')['slug']
     tenant_slug=query(app,'SELECT slug FROM tenants')['slug']
-    for path in ['/',topic,'/super','/super/forums/'+tenant_slug,'/admin','/admin/categories','/admin/users','/admin/users/'+user_slug,'/admin/settings','/admin/appearance','/admin/appearance/logo','/settings','/settings/email','/settings/password','/settings/avatar','/settings/delete','/topics/new',topic+'/reply','/posts/'+post_slug+'/edit','/posts/'+post_slug+'/history']:
+    for path in ['/',topic,'/super','/super/forums/'+tenant_slug,'/admin','/admin/categories','/admin/users','/admin/users/'+user_slug,'/admin/settings','/admin/settings/mail','/admin/appearance','/admin/appearance/logo','/settings','/settings/email','/settings/password','/settings/avatar','/settings/delete','/topics/new',topic+'/reply','/posts/'+post_slug+'/edit','/posts/'+post_slug+'/history']:
         assert setup.get(path).status_code==200,path
     post(setup,'/language/en',{'next':'/'})
     assert b'Good conversations start here.' in setup.get('/').data
+
+
+@pytest.mark.parametrize('role', ['superadmin', 'admin', 'moderator', 'user', None])
+def test_home_smtp_warning_visibility(app,setup,role):
+    if role:
+        query(app,"UPDATE users SET role=? WHERE email='root@example.org'",(role,))
+        client=setup
+    else:
+        client=app.test_client()
+    page=client.get('/').text
+    visible=role in ('superadmin','admin')
+    assert ('Noch kein SMTP-Server hinterlegt.' in page)==visible
+    if visible:
+        assert 'role="alert" class="flash warning"' in page
+        assert '<a href="/admin/settings/mail">E-Mail-Versand einrichten</a>' in page
+        assert 'Noch kein SMTP-Server hinterlegt.' in client.get('/').text
+        assert 'Noch kein SMTP-Server hinterlegt.' not in client.get('/settings').text
+    query(app,"UPDATE tenants SET smtp_host='mail.test' WHERE name='Community'")
+    assert 'Noch kein SMTP-Server hinterlegt.' not in client.get('/').text
+
+
+def test_home_smtp_warning_language_and_tenant(app,setup):
+    query(app,"UPDATE tenants SET smtp_host='mail.test' WHERE name='Community'")
+    assert 'Noch kein SMTP-Server hinterlegt.' not in setup.get('/').text
+    assert login(setup,host='other.test').status_code==302
+    assert 'Noch kein SMTP-Server hinterlegt.' in setup.get('/',base_url='http://other.test').text
+    post(setup,'/language/en',{'next':'/'},host='other.test')
+    page=setup.get('/',base_url='http://other.test').text
+    assert 'No SMTP server configured yet.' in page
+    assert 'Configure email delivery</a>' in page
 
 
 def test_registration_validation_and_scoped_email(app,setup):
@@ -297,7 +327,8 @@ def test_admin_edits_roles_profile_and_tenant_settings(app,setup):
     changed=query(app,'SELECT * FROM users WHERE id=?',(user['id'],))
     assert changed['username']=='Updated' and changed['role']=='moderator'
     assert member.get('/admin').status_code==403
-    post(setup,'/admin/settings',{'name':'Updated forum','theme':'forest','smtp_host':'mail.test','smtp_port':'465','smtp_user':'mailuser','smtp_password':'mailsecret','smtp_security':'ssl','mail_from':'noreply@example.org'})
+    post(setup,'/admin/settings',{'name':'Updated forum'})
+    post(setup,'/admin/settings/mail',{'smtp_host':'mail.test','smtp_port':'465','smtp_user':'mailuser','smtp_password':'mailsecret','smtp_security':'ssl','mail_from':'noreply@example.org'})
     post(setup,'/admin/appearance',{'theme':'forest'})
     tenant=query(app,"SELECT * FROM tenants WHERE name='Updated forum'")
     assert tenant['theme']=='forest' and tenant['smtp_port']==465
@@ -641,3 +672,166 @@ def test_existing_database_adds_logo_without_resetting_it(app,setup):
     original=query(app,"SELECT logo FROM tenants WHERE name='Community'")['logo']
     create_app(dict(app.config))
     assert query(app,"SELECT logo FROM tenants WHERE name='Community'")['logo']==original
+
+
+def test_mail_settings_are_separate_and_tenant_scoped(app,setup):
+    general=setup.get('/admin/settings').text
+    assert 'name="smtp_host"' not in general and 'name="digest_time"' not in general
+    assert 'href="/admin/settings/mail"' in general
+    mail=setup.get('/admin/settings/mail').text
+    assert 'name="recipient" value="root@example.org"' in mail
+    assert 'name="smtp_host"' in mail and 'name="digest_time"' in mail
+    settings={'smtp_host':'mail.example.org','smtp_port':'465','smtp_security':'ssl',
+              'mail_from':'forum@example.org','smtp_user':'mailer','smtp_password':'private-test-password',
+              'digest_time':'18:30','digest_timezone':'Atlantic/Canary','digest_weekday':'2'}
+    assert post(setup,'/admin/settings/mail',settings).location=='/admin/settings/mail'
+    tenant=dict(query(app,"SELECT * FROM tenants WHERE name='Community'"))
+    assert tenant['smtp_password']=='private-test-password' and tenant['smtp_port']==465
+    assert query(app,"SELECT smtp_host FROM tenants WHERE name='Second'")['smtp_host']==''
+    assert 'private-test-password' not in setup.get('/admin/settings/mail').text
+    assert post(setup,'/admin/settings',{'name':'Renamed','smtp_host':'ignored'}).status_code==302
+    changed=dict(query(app,'SELECT * FROM tenants WHERE id=?',(tenant['id'],)))
+    for field in settings:
+        assert changed[field]==tenant[field]
+    assert post(setup,'/admin/settings/mail',{**settings,'smtp_password':''}).status_code==302
+    assert query(app,'SELECT smtp_password FROM tenants WHERE id=?',(tenant['id'],))['smtp_password']==tenant['smtp_password']
+    assert query(app,'SELECT name FROM tenants WHERE id=?',(tenant['id'],))['name']=='Renamed'
+
+
+def test_test_mail_defaults_custom_recipient_and_failure(app,setup,monkeypatch):
+    result=post(setup,'/admin/settings/mail',{'action':'test'},follow=True)
+    assert 'Bitte zuerst SMTP-Server und Mail-Absender speichern.' in result.text
+    assert not app.extensions['outbox']
+    post(setup,'/admin/settings/mail',{'smtp_host':'mail.example.org','mail_from':'forum@example.org'})
+    result=post(setup,'/admin/settings/mail',{'action':'test'},follow=True)
+    assert 'Testmail wurde versendet.' in result.text
+    assert app.extensions['outbox'][-1]['to']=='root@example.org'
+    assert app.extensions['outbox'][-1]['kind']=='test'
+    result=post(setup,'/admin/settings/mail',{'action':'test','recipient':'other@example.org'},follow=True)
+    assert app.extensions['outbox'][-1]['to']=='other@example.org'
+    count=len(app.extensions['outbox'])
+    for invalid in ['', 'invalid', 'other@example.org\r\nBcc: hidden@example.org']:
+        result=post(setup,'/admin/settings/mail',{'action':'test','recipient':invalid},follow=True)
+        assert 'Bitte eine gültige E-Mail-Adresse eingeben.' in result.text
+    assert len(app.extensions['outbox'])==count
+    def broken_delivery(tenant,message,**metadata):
+        assert message['From']=='forum@example.org'
+        assert message['To']=='root@example.org'
+        raise OSError('private SMTP details')
+    monkeypatch.setattr('vorum.deliver_mail',broken_delivery)
+    result=post(setup,'/admin/settings/mail',{'action':'test'},follow=True)
+    assert 'Testmail konnte nicht versendet werden.' in result.text
+    assert 'private SMTP details' not in result.text
+    assert len(app.extensions['outbox'])==count
+
+
+@pytest.mark.parametrize('role',['admin','moderator','user',None])
+def test_mail_settings_permissions_and_csrf(app,setup,role):
+    if role:
+        query(app,"UPDATE users SET role=? WHERE email='root@example.org'",(role,))
+        client=setup
+    else:
+        client=app.test_client()
+    expected=200 if role=='admin' else 403 if role else 302
+    assert client.get('/admin/settings/mail').status_code==expected
+    result=post(client,'/admin/settings/mail',{'action':'test'})
+    assert result.status_code==(302 if role in ('admin',None) else 403)
+    assert setup.post('/admin/settings/mail',data={'action':'test'}).status_code==400
+    assert not app.extensions['outbox']
+
+
+ACCESS_FIELDS=('search_indexing_allowed','guests_can_view_forum','guests_can_view_topics')
+
+
+def test_access_settings_defaults_save_scope_and_permissions(app,setup):
+    path='/admin/settings/access'
+    page=setup.get(path).text
+    assert 'Zugriff' in page and path in setup.get('/admin/settings').text
+    for field in ACCESS_FIELDS:
+        assert f'name="{field}" checked' in page
+    assert all(query(app,'SELECT * FROM tenants WHERE name=?',(name,))[field]==1
+               for name in ('Community','Second') for field in ACCESS_FIELDS)
+    assert setup.post(path,data={}).status_code==400
+    assert post(setup,path,{}).status_code==302
+    assert all(query(app,"SELECT * FROM tenants WHERE name='Community'")[field]==0 for field in ACCESS_FIELDS)
+    assert all(query(app,"SELECT * FROM tenants WHERE name='Second'")[field]==1 for field in ACCESS_FIELDS)
+    # Unrelated settings cannot reset access choices.
+    post(setup,'/admin/settings',{'name':'Community','registration_allowed':'on','login_allowed':'on'})
+    assert all(query(app,"SELECT * FROM tenants WHERE name='Community'")[field]==0 for field in ACCESS_FIELDS)
+    assert post(setup,path,{field:'on' for field in ACCESS_FIELDS}).status_code==302
+    assert all(query(app,"SELECT * FROM tenants WHERE name='Community'")[field]==1 for field in ACCESS_FIELDS)
+    member=verified(app)
+    assert member.get(path).status_code==403
+    assert post(member,path,{}).status_code==403
+    assert app.test_client().get(path).status_code==302
+    post(setup,'/language/en')
+    assert 'Allow guests to view topics' in setup.get(path).text
+
+
+def test_guest_access_controls_listing_and_direct_topics(app,setup):
+    topic=new_topic(setup,title='Private discussion')
+    guest=app.test_client()
+    assert 'Private discussion' in guest.get('/').text
+    assert guest.get(topic).status_code==200
+    post(setup,'/admin/settings/access',{'search_indexing_allowed':'on','guests_can_view_forum':'on'})
+    home=guest.get('/')
+    assert home.status_code==200
+    assert 'Private discussion' in home.text
+    assert f'href="{topic}"' in home.text
+    assert guest.get(topic).location.startswith('/login?next=')
+    assert 'Private discussion' in setup.get('/').text
+    assert setup.get(topic).status_code==200
+    post(setup,'/admin/settings/access',{'search_indexing_allowed':'on','guests_can_view_topics':'on'})
+    assert guest.get('/').location=='/login?next=/'
+    assert guest.get(topic).status_code==302
+    assert guest.get('/login').status_code==200
+    assert guest.get('/register').status_code==200
+    assert guest.get('/static/style.css').status_code==200
+    assert guest.get('/',base_url='http://other.test').status_code==200
+    assert setup.get(topic).status_code==200
+    # External login remains reachable when the forum is private.
+    query(app,"UPDATE tenants SET login_url='https://example.org/login' WHERE name='Community'")
+    assert guest.get('/login').location=='https://example.org/login'
+
+
+def test_search_indexing_header_is_tenant_scoped(app,setup):
+    guest=app.test_client()
+    assert 'X-Robots-Tag' not in guest.get('/').headers
+    post(setup,'/admin/settings/access',{'guests_can_view_forum':'on','guests_can_view_topics':'on'})
+    assert guest.get('/').headers['X-Robots-Tag']=='noindex, nofollow'
+    assert guest.get('/missing').headers['X-Robots-Tag']=='noindex, nofollow'
+    assert 'X-Robots-Tag' not in guest.get('/',base_url='http://other.test').headers
+    post(setup,'/admin/settings/access',{field:'on' for field in ACCESS_FIELDS})
+    assert 'X-Robots-Tag' not in guest.get('/').headers
+
+
+def test_access_migration_defaults_and_preserves_choices(app,setup):
+    for field in ACCESS_FIELDS:
+        query(app,'ALTER TABLE tenants DROP COLUMN '+field)
+    create_app(app.config)
+    assert all(tenant[field]==1 for tenant in query(app,'SELECT * FROM tenants',all=True) for field in ACCESS_FIELDS)
+    query(app,"UPDATE tenants SET guests_can_view_forum=0 WHERE name='Community'")
+    create_app(app.config)
+    assert query(app,"SELECT guests_can_view_forum FROM tenants WHERE name='Community'")[0]==0
+
+
+@pytest.mark.parametrize('indexing_allowed',[False,True])
+@pytest.mark.parametrize('guest_access',[False,True])
+def test_robots_respects_indexing_setting_without_guest_login(app,setup,indexing_allowed,guest_access):
+    values={}
+    if indexing_allowed:
+        values['search_indexing_allowed']='on'
+    if guest_access:
+        values['guests_can_view_forum']='on'
+        values['guests_can_view_topics']='on'
+    assert post(setup,'/admin/settings/access',values).status_code==302
+    guest=app.test_client()
+    rule='Allow: /' if indexing_allowed else 'Disallow: /'
+    for host in ('localhost','alias.test'):
+        response=guest.get('/robots.txt',base_url='http://'+host)
+        assert response.status_code==200
+        assert response.mimetype=='text/plain'
+        assert response.text=='User-agent: *\n'+rule+'\n'
+    # Another forum keeps its own default, including on subsequent requests.
+    assert guest.get('/robots.txt',base_url='http://other.test').text=='User-agent: *\nAllow: /\n'
+    assert guest.get('/robots.txt',base_url='http://unknown.test').status_code==404

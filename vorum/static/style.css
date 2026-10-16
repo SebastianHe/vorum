@@ -18,3 +18,6 @@ a,.eyebrow,.badge,.empty-icon,.admin-nav a.active,.admin-nav a:hover{color:var(-
 
 .forum-logo{width:42px;height:42px;object-fit:contain;flex-shrink:0}.logo-preview{width:100%;max-width:280px;height:180px;object-fit:contain;align-self:flex-start;background:var(--soft);border:1px solid var(--border);border-radius:9px;padding:12px}.admin-nav a.admin-subnav{margin-left:18px;font-size:.82rem}
 @media(max-width:700px){.forum-logo{width:34px;height:34px}}
+
+.footer .footer-brand{color:inherit;text-decoration:none}
+.flash.warning{background:#d9981818;border-color:#d9981880;color:var(--text)}.flash.warning a{text-decoration:underline}

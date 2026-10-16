@@ -38,8 +38,15 @@ von Anfang an dabei.
 Vorum wird aktiv weiterentwickelt. Prüfe vor einem öffentlichen Einsatz die
 [Betriebshinweise](docs/operations.md), richte Backups ein und teste deinen
 Anwendungsfall. Die Auswahl eines Forums über den Hostnamen ersetzt keine
-Zugriffssperre: Forenübersicht und Beiträge sind öffentlich lesbar; Downloads von
-Anhängen benötigen ein angemeldetes, bestätigtes Konto.
+Zugriffssperre: Standardmäßig sind Forenübersicht und Beiträge öffentlich lesbar.
+Unter **Backend → Einstellungen → Zugriff** lassen sich die Suchmaschinenindizierung,
+der Gastzugriff auf das Forum und das Öffnen einzelner Themen durch Gäste steuern.
+Alle drei Optionen sind standardmäßig aktiviert. Bei deaktiviertem Themenzugriff
+bleibt die Themenliste sichtbar; einzelne Themen führen Gäste zum Login.
+Die deaktivierte Indizierung setzt den HTTP-Header `X-Robots-Tag: noindex, nofollow`.
+Die Datei `/robots.txt` erlaubt oder untersagt das Crawlen entsprechend dieser
+Einstellung und bleibt auch bei deaktiviertem Gastzugriff öffentlich erreichbar.
+Downloads von Anhängen benötigen ein angemeldetes, bestätigtes Konto.
 
 ## Installation mit Docker (empfohlen)
 
@@ -77,8 +84,11 @@ Port-/Netzwerkkonfiguration angepasst werden; Details stehen weiter unten.
 2. **Forum anlegen.** Im Super-Backend einen Namen und den Hostnamen `localhost`
    eintragen. Hostnamen werden ohne Protokoll und Port angegeben, ein Eintrag pro
    Zeile. Mehrere Einträge können dasselbe Forum aufrufen.
-3. **E-Mail-Versand einrichten.** Im Forum unter **Backend → Einstellungen** SMTP
-   und Absender konfigurieren, bevor sich weitere Mitglieder registrieren.
+3. **E-Mail-Versand einrichten.** Im Forum unter **Backend → Einstellungen → Mail** SMTP
+   und Absender konfigurieren, bevor sich weitere Mitglieder registrieren. Dort lassen
+   sich auch die Versandzeiten für Zusammenfassungen einstellen und eine Testmail
+   mit der gespeicherten Konfiguration senden. Als Empfänger ist die eigene
+   E-Mail-Adresse vorausgefüllt und kann geändert werden.
 4. **Dein Forum gestalten.** Unter **Backend → Aussehen** Logo, Farben und
    Startseitentexte anpassen, Themenbereiche anlegen und das erste Thema eröffnen.
 

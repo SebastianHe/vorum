@@ -112,6 +112,9 @@ DE = {'user':'Benutzer','moderator':'Moderator','admin':'Admin','superadmin':'Su
 
 EN.update({
     'Startseitentexte': 'Homepage texts', 'Deutsch': 'German', 'Englisch': 'English',
+    'Noch kein SMTP-Server hinterlegt.': 'No SMTP server configured yet.',
+    'Bitte richte den E-Mail-Versand ein, damit Bestätigungen und Benachrichtigungen versendet werden können.': 'Please configure email delivery so that verification emails and notifications can be sent.',
+    'E-Mail-Versand einrichten': 'Configure email delivery',
     'Kurzzeile': 'Eyebrow', 'Überschrift': 'Heading', 'Beschreibung': 'Description',
     'Startseitentexte dürfen jeweils maximal 2000 Zeichen enthalten.': 'Each homepage text may contain up to 2000 characters.',
 })
@@ -123,4 +126,21 @@ EN.update({
     'Logo hochladen':'Upload logo', 'Logo entfernen':'Remove logo',
     'Maximal 10 MB und 20 Millionen Pixel. Das Logo wird auf maximal 1024 Pixel verkleinert. Für das Favicon empfiehlt sich ein quadratisches Bild.':'Up to 10 MB and 20 million pixels. The logo is resized to at most 1024 pixels. A square image works best for the favicon.',
     'Logo: maximal 10 MB und ein gültiges Bild mit höchstens 20 Millionen Pixeln.':'Logo: up to 10 MB and a valid image with at most 20 million pixels.',
+})
+
+EN.update({
+    'Mail':'Mail', 'Testmail versenden':'Send test email', 'Empfänger':'Recipient',
+    'Die Testmail wird mit den gespeicherten Mail-Einstellungen versendet. Bitte Änderungen vorher speichern.':'The test email uses the saved mail settings. Please save changes first.',
+    'Bitte zuerst SMTP-Server und Mail-Absender speichern.':'Please save the SMTP server and sender email first.',
+    'Vorum Testmail':'Vorum test email',
+    'Diese Testmail bestätigt, dass der E-Mail-Versand deines Forums funktioniert.':'This test email confirms that email delivery for your forum is working.',
+    'Testmail konnte nicht versendet werden. Bitte SMTP-Einstellungen prüfen.':'Test email could not be sent. Please check the SMTP settings.',
+    'Testmail wurde versendet.':'Test email sent.',
+})
+
+EN.update({
+    'Zugriff':'Access',
+    'Suchmaschinen dürfen das Forum indizieren':'Allow search engines to index the forum',
+    'Gäste dürfen das Forum sehen':'Allow guests to view the forum',
+    'Gäste dürfen die Themen sehen':'Allow guests to view topics',
 })

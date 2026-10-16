@@ -155,9 +155,6 @@ with tempfile.TemporaryDirectory(prefix='vorum-browser-') as tmp:
             page.goto(base+'/admin/settings')
             assert page.get_by_label('Zeitzone des Forums',exact=True).input_value()=='UTC'
             page.get_by_label('Zeitzone des Forums',exact=True).select_option('Europe/Berlin')
-            assert page.get_by_label('Versandzeit',exact=True).input_value()=='16:00'
-            assert page.get_by_label('Zeitzone',exact=True).input_value()=='Europe/Berlin'
-            assert page.get_by_label('Wöchentlicher Versand',exact=True).input_value()=='5'
             page.get_by_label('Registrierung erlaubt',exact=True).uncheck()
             page.get_by_label('Login erlaubt',exact=True).uncheck()
             page.get_by_label('AGB-Text',exact=True).fill('Unsere Bedingungen\nBitte freundlich bleiben.')
@@ -168,6 +165,22 @@ with tempfile.TemporaryDirectory(prefix='vorum-browser-') as tmp:
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             assert not page.get_by_label('Login erlaubt',exact=True).is_checked()
             page.screenshot(path=str(output/'admin-settings.png'),full_page=True)
+            page.get_by_role('link',name='Mail →',exact=True).click()
+            page.wait_for_url('**/admin/settings/mail')
+            assert page.get_by_label('Versandzeit',exact=True).input_value()=='16:00'
+            assert page.get_by_label('Zeitzone',exact=True).input_value()=='Europe/Berlin'
+            assert page.get_by_label('Wöchentlicher Versand',exact=True).input_value()=='5'
+            assert page.get_by_label('Empfänger',exact=True).input_value()=='alex@example.org'
+            page.get_by_label('Zeitzone',exact=True).select_option('Atlantic/Canary')
+            page.get_by_label('SMTP-Server',exact=True).fill('smtp.example.org')
+            page.get_by_label('Mail-Absender',exact=True).fill('forum@example.org')
+            page.get_by_role('button',name='Änderungen speichern',exact=True).click()
+            assert page.get_by_label('Zeitzone',exact=True).input_value()=='Atlantic/Canary'
+            page.get_by_role('button',name='Testmail versenden',exact=True).click()
+            assert page.get_by_text('Testmail wurde versendet.',exact=True).is_visible()
+            assert app.extensions['outbox'][-1]['to']=='alex@example.org'
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            page.screenshot(path=str(output/'admin-mail.png'),full_page=True)
             page.goto(base+'/admin/appearance')
             for label,(_,custom) in intro_texts.items():
                 assert page.get_by_label(label,exact=True).input_value()==custom
