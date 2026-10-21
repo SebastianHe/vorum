@@ -22,6 +22,7 @@ from werkzeug.exceptions import HTTPException
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from .mail import deliver_mail, system_message
+from .avatars import MAX_AVATAR_BYTES, prepare_avatar
 
 THEMES = {
     'default': ('#0077b6', '#03045e', '#caf0f8'),
@@ -180,6 +181,7 @@ def create_app(config=None):
             'users': {'registration_code':'TEXT', 'external_id':'TEXT', 'username_suggestion':'INTEGER NOT NULL DEFAULT 0',
                       'avatar_editable':'INTEGER NOT NULL DEFAULT 1', 'avatar_suggestion_url':'TEXT', 'profile_pending':'INTEGER NOT NULL DEFAULT 0'},
             'reads': {'visited_at':'TEXT'},
+            'api_login_tokens': {'avatar_preview':'BLOB'},
         }
         for table, additions in migrations.items():
             columns = {column[1] for column in conn.execute(f'PRAGMA table_info({table})')}
@@ -208,7 +210,7 @@ def create_app(config=None):
             g.user = None
         # The cookie selects a forum, but never grants access on its own.
         if (g.user and g.user['role']=='superadmin' and g.user['verified'] and not g.user['profile_pending']
-                and request.endpoint not in ('superadmin', 'api.external_login')):
+                and request.endpoint not in ('superadmin', 'api.external_login', 'api.avatar_preview')):
             selected = request.cookies.get(SUPERADMIN_TENANT_COOKIE)
             if selected:
                 tenant = one('SELECT * FROM tenants WHERE slug=?', (selected,))
@@ -227,7 +229,8 @@ def create_app(config=None):
             g.user = None
             session.pop('user_id', None)
 
-        guest_endpoints = {'register','login','logout','verify','resend','static','language','forum_branding','robots'}
+        guest_endpoints = {'register','login','logout','verify','resend','static','language','forum_branding','robots',
+                           'api.external_login','api.avatar_preview'}
         if g.tenant and not g.user and request.endpoint is not None:
             if (not g.tenant['guests_can_view_forum'] and request.endpoint not in guest_endpoints
                     or not g.tenant['guests_can_view_topics'] and request.endpoint == 'topic'):
@@ -636,20 +639,10 @@ def create_app(config=None):
         return send_from_directory(data/'uploads',user['avatar'],mimetype='image/png')
 
     def save_avatar(file):
-        content=file.read(10*1024*1024+1)
-        if len(content)>10*1024*1024:
-            raise ValueError('Avatar: maximal 10 MB und ein gültiges Bild.')
-        try:
-            with Image.open(io.BytesIO(content)) as img:
-                if img.width*img.height>20000000:
-                    raise ValueError('Avatar: maximal 10 MB und ein gültiges Bild.')
-                img.load()
-                img.thumbnail((256,256))
-                filename=secrets.token_hex(24)+'.png'
-                img.convert('RGBA').save(data/'uploads'/filename,'PNG')
-                return filename
-        except (UnidentifiedImageError,OSError,Image.DecompressionBombError):
-            raise ValueError('Avatar: maximal 10 MB und ein gültiges Bild.')
+        content=prepare_avatar(file.read(MAX_AVATAR_BYTES+1))
+        filename=secrets.token_hex(24)+'.png'
+        (data/'uploads'/filename).write_bytes(content)
+        return filename
 
     def delete_user(user):
         db().execute('BEGIN IMMEDIATE')
@@ -1070,7 +1063,7 @@ def create_app(config=None):
         response.headers['X-Frame-Options']='DENY'
         response.headers['Referrer-Policy']='same-origin'
         response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
-        if request.endpoint=='api.external_login':
+        if request.endpoint in ('api.external_login', 'api.avatar_preview'):
             response.headers['Referrer-Policy']='no-referrer'
         if request.endpoint!='static':
             response.headers['Cache-Control']='no-store'

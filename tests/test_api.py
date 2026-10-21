@@ -2,16 +2,19 @@ import io
 import re
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
+from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from test_vorum import app, setup, login, post, query, register, verified
 from vorum import SUPERADMIN_TENANT_COOKIE, create_app
 import vorum.api as api_module
+from test_avatars import avatar_server
 
 
 @pytest.fixture
-def api_key(app, setup):
+def api_key(app, setup, avatar_server):
     response = post(setup, '/admin/api', {'action': 'create', 'name': 'CRM'})
     assert response.status_code == 200
     return re.search(r'value="(vorum_[A-Za-z0-9_-]+)"', response.text)[1]
@@ -84,6 +87,16 @@ def test_api_ignores_superadmin_forum_selection_cookie(app,setup,api_key):
     assert '<title>Community · Vorum</title>' in setup.get('/').text
 
 
+def test_preview_ignores_superadmin_forum_selection_cookie(app, setup, api_key):
+    tenant = query(app, "SELECT * FROM tenants WHERE name='Second'")
+    post(setup, '/super/forums/'+tenant['slug']+'/open', {'destination': 'admin'})
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE)
+    link = transfer(app, api_key, {'avatar_suggestion': True}).json['login_url']
+    page = setup.get(link)
+    assert page.status_code == 200 and '<title>Community · Vorum</title>' in page.text
+    assert setup.get(urlsplit(link).path+'/avatar').status_code == 200
+
+
 @pytest.mark.parametrize('data,code', [
     ({'external_id': 123}, 'invalid_external_id'),
     ({'external_id': ''}, 'invalid_external_id'),
@@ -117,6 +130,7 @@ def test_new_user_login_is_single_use_and_supersedes_browser_session(app, setup,
     response = transfer(app, api_key, {'external_id': 'crm:0001', 'email': 'External@Example.org'})
     assert response.status_code == 201 and response.json['created'] is True
     assert response.json['expires_in'] == 300
+    assert urlsplit(response.json['login_url']).scheme == 'https'
     assert response.json['user']['profile_required'] is False
     link = response.json['login_url']
     stored = query(app, 'SELECT * FROM api_login_tokens')
@@ -166,14 +180,21 @@ def test_revoked_key_cannot_authenticate_when_database_id_is_reused(app, setup, 
 
 
 @pytest.mark.parametrize('accept', [False, True])
-def test_suggestions_require_profile_and_allow_avatar_choice(app, setup, api_key, accept):
+def test_suggestions_require_profile_and_allow_avatar_choice(app, setup, api_key, accept, avatar_server):
     response = transfer(app, api_key, {'username_suggestion': True, 'avatar_suggestion': True})
     assert response.json['user']['profile_required']
     link = response.json['login_url']
     client = app.test_client()
     page = client.get(link)
     assert page.status_code == 200 and 'value="External"' in page.text
-    assert 'https://images.example.org/avatar.png' in page.text
+    assert 'https://images.example.org/avatar.png' not in page.text
+    preview_url = urlsplit(link).path + '/avatar'
+    assert 'src="' + preview_url + '"' in page.text
+    preview = client.get(preview_url)
+    assert preview.status_code == 200 and preview.mimetype == 'image/png'
+    assert preview.headers['Cache-Control'] == 'no-store'
+    assert preview.headers['Referrer-Policy'] == 'no-referrer'
+    assert Image.open(io.BytesIO(preview.data)).size == (256, 192)
     with client.session_transaction() as sess:
         assert 'user_id' not in sess
     assert post(client, urlsplit(link).path, {'username': ' Bad'}).status_code == 400
@@ -184,15 +205,24 @@ def test_suggestions_require_profile_and_allow_avatar_choice(app, setup, api_key
     assert response.status_code == 302
     user = external_user(app)
     assert user['username'] == 'Chosen' and not user['profile_pending']
-    assert user['avatar'] == ('https://images.example.org/avatar.png' if accept else None)
+    uploads = Path(app.config['DATA_DIR'])/'uploads'
+    if accept:
+        assert user['avatar'].endswith('.png')
+        assert (uploads/user['avatar']).read_bytes() == preview.data
+        assert client.get('/avatars/'+user['slug']).data == preview.data
+    else:
+        assert user['avatar'] is None and not list(uploads.iterdir())
+    assert client.get(preview_url).status_code == 410
     assert user['avatar_editable']
     assert client.get(link).status_code == 410
     # Later suggestions never overwrite a chosen name/avatar or repeat onboarding.
+    downloaded = len(avatar_server[2])
     response = transfer(app, api_key, {'username': 'New suggestion', 'username_suggestion': True,
                                       'avatar_url': 'https://images.example.org/new.png', 'avatar_suggestion': True})
     assert response.status_code == 200 and not response.json['user']['profile_required']
     assert external_user(app)['username'] == 'Chosen'
     assert external_user(app)['avatar'] == user['avatar']
+    assert len(avatar_server[2]) == downloaded
 
 
 def test_pending_profile_obeys_latest_transfer_and_link_expiry(app, setup, api_key):
@@ -217,7 +247,78 @@ def test_avatar_suggestion_with_fixed_username(app, setup, api_key):
     assert page.status_code == 200 and 'name="username"' not in page.text
     post(client, urlsplit(response.json['login_url']).path, {'username': 'Hijacked', 'accept_avatar': 'on'})
     assert external_user(app)['username'] == 'External'
-    assert external_user(app)['avatar'] == 'https://images.example.org/avatar.png'
+    assert external_user(app)['avatar'].endswith('.png')
+
+
+def test_invalid_avatar_download_is_atomic(app, setup, api_key, avatar_server):
+    Response, responses, _, _ = avatar_server
+    responses.append(Response(b'not an image'))
+    result = transfer(app, api_key, {'avatar_suggestion': True})
+    assert result.status_code == 400 and result.json['error']['code'] == 'invalid_avatar_image'
+    assert external_user(app) is None
+    assert query(app, 'SELECT COUNT(*) n FROM api_login_tokens')['n'] == 0
+    original = transfer(app, api_key, {'avatar_suggestion': True})
+    preview = query(app, 'SELECT avatar_preview FROM api_login_tokens')['avatar_preview']
+    responses.append(Response(status=404))
+    result = transfer(app, api_key, {'avatar_suggestion': True, 'username': 'Must not change'})
+    assert result.status_code == 400
+    assert external_user(app)['username'] == 'External'
+    assert query(app, 'SELECT avatar_preview FROM api_login_tokens')['avatar_preview'] == preview
+    assert app.test_client().get(original.json['login_url']).status_code == 200
+    assert not list((Path(app.config['DATA_DIR'])/'uploads').iterdir())
+
+
+def test_preview_is_scoped_to_current_live_login_token(app, setup, api_key):
+    link = transfer(app, api_key, {'avatar_suggestion': True}).json['login_url']
+    path = urlsplit(link).path + '/avatar'
+    client = app.test_client()
+    assert client.get(path).status_code == 200
+    assert client.get(path, base_url='http://other.test').status_code == 410
+    assert client.get('/api-login/unknown/avatar').status_code == 410
+    latest = transfer(app, api_key, {'avatar_suggestion': True}).json['login_url']
+    assert client.get(path).status_code == 410
+    latest_path = urlsplit(latest).path + '/avatar'
+    assert client.get(latest_path).status_code == 200
+    query(app, 'UPDATE api_login_tokens SET expires_at=0')
+    assert client.get(latest_path).status_code == 410
+    revoked = transfer(app, api_key, {'avatar_suggestion': True}).json['login_url']
+    key = query(app, 'SELECT slug FROM api_keys')['slug']
+    post(setup, '/admin/api', {'action': 'revoke', 'key': key})
+    assert client.get(urlsplit(revoked).path + '/avatar').status_code == 410
+    assert query(app, 'SELECT COUNT(*) n FROM api_login_tokens')['n'] == 0
+
+
+def test_confirmation_and_preview_work_with_guest_access_disabled(app, setup, api_key):
+    query(app, 'UPDATE tenants SET guests_can_view_forum=0')
+    link = transfer(app, api_key, {'avatar_suggestion': True}).json['login_url']
+    client = app.test_client()
+    page = client.get(link)
+    assert page.status_code == 200 and 'class="suggested-avatar"' in page.text
+    assert client.get(urlsplit(link).path + '/avatar').status_code == 200
+
+
+def test_failed_confirmation_removes_new_file_and_keeps_preview(app, setup, api_key, monkeypatch):
+    link = transfer(app, api_key, {'avatar_suggestion': True}).json['login_url']
+    client = app.test_client()
+    assert client.get(link).status_code == 200
+    original_db = api_module.db
+
+    class FailingCommit:
+        def execute(self, *args):
+            return original_db().execute(*args)
+
+        def rollback(self):
+            original_db().rollback()
+
+        def commit(self):
+            raise OSError('test database write failure')
+
+    monkeypatch.setattr(api_module, 'db', FailingCommit)
+    with pytest.raises(OSError, match='test database write failure'):
+        post(client, urlsplit(link).path, {'accept_avatar': 'on'})
+    assert external_user(app)['profile_pending'] and external_user(app)['avatar'] is None
+    assert query(app, 'SELECT avatar_preview FROM api_login_tokens')['avatar_preview']
+    assert not list((Path(app.config['DATA_DIR'])/'uploads').iterdir())
 
 
 def test_avatar_authority_and_account_restrictions_follow_latest_transfer(app, setup, api_key):
@@ -377,6 +478,7 @@ def test_terms_are_escaped_displayed_and_required_server_side(app, setup):
 
 
 def test_existing_database_migrates_and_keeps_users(app, setup):
+    query(app, 'ALTER TABLE api_login_tokens DROP COLUMN avatar_preview')
     query(app, 'DROP INDEX user_external_id')
     for column in ('external_id', 'username_suggestion', 'avatar_editable', 'avatar_suggestion_url', 'profile_pending'):
         query(app, f'ALTER TABLE users DROP COLUMN {column}')
@@ -387,4 +489,5 @@ def test_existing_database_migrates_and_keeps_users(app, setup):
     tenant = query(app, 'SELECT * FROM tenants')
     assert tenant['registration_allowed'] == tenant['login_allowed'] == 1
     assert tenant['registration_url'] == tenant['login_url'] == tenant['registration_terms'] == ''
+    assert query(app, 'SELECT avatar_preview FROM api_login_tokens') is None
     create_app(dict(app.config))  # Migration is safe to repeat.

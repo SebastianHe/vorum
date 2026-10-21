@@ -6,12 +6,15 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
+from unittest.mock import patch
+from urllib.parse import urlsplit
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from PIL import Image
 from playwright.sync_api import sync_playwright
 from werkzeug.serving import make_server
 from vorum import create_app
+from vorum.avatars import prepare_avatar
 
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 output=Path('/tmp/vorum-preview')
@@ -253,14 +256,16 @@ with tempfile.TemporaryDirectory(prefix='vorum-browser-') as tmp:
 
             payload={'external_id':'browser:001','email':'browser-api@example.org','email_verified':True,
                      'username':'Vorschlag','username_suggestion':True,
-                     'avatar_url':'https://images.example.org/avatar.svg','avatar_suggestion':True}
-            response=page.request.post(base+'/api/v1/users/login',data=payload,headers={'Authorization':'Bearer '+api_key})
+                     'avatar_url':'https://images.example.org/avatar.png','avatar_suggestion':True}
+            image=io.BytesIO()
+            Image.new('RGB',(800,600),'#0077b6').save(image,'PNG')
+            with patch('vorum.api.download_avatar',return_value=prepare_avatar(image.getvalue())):
+                response=page.request.post(base+'/api/v1/users/login',data=payload,headers={'Authorization':'Bearer '+api_key})
             assert response.status==201,response.text()
-            login_url=response.json()['login_url']
+            assert urlsplit(response.json()['login_url']).scheme=='https'
+            # This test server only speaks HTTP; follow the returned path locally.
+            login_url=base+urlsplit(response.json()['login_url']).path
             external_context=browser.new_context(viewport={'width':390,'height':844},locale='de-DE')
-            external_context.route('https://images.example.org/**',lambda route:route.fulfill(
-                status=200,content_type='image/svg+xml',
-                body='<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="#0077b6"/><circle cx="64" cy="48" r="20" fill="#caf0f8"/><path d="M24 112a40 40 0 0 1 80 0" fill="#caf0f8"/></svg>'))
             external=external_context.new_page()
             external.goto(login_url)
             assert external.get_by_label('Benutzername',exact=True).input_value()=='Vorschlag'

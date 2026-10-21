@@ -99,6 +99,8 @@ Den Browser des authentifizierten Benutzers zur vollständigen `login_url`
 weiterleiten, beispielsweise mit einer HTTP-302-Antwort. Den Link nicht selbst
 serverseitig öffnen: Die Vorum-Sitzung muss im Browser entstehen. Die JSON-Anfrage
 erzeugt keine Browser-Anmeldung und benötigt weder Browser-Cookies noch CSRF-Token.
+Die zurückgegebene `login_url` verwendet immer **HTTPS**, auch wenn die API-Anfrage
+intern über HTTP eintrifft, etwa hinter einem Reverse Proxy.
 
 Der geheime String ist zufällig und wird in Vorum nur als Hash gespeichert.
 Der Link gilt exakt **300 Sekunden ab Ausstellung**, für das jeweilige Forum und
@@ -153,12 +155,28 @@ nächsten API-Aufruf `email_verified: true` senden.
   statt Passwortabfrage. Beiträge bleiben entsprechend den Vorum-Regeln erhalten.
   Eine spätere API-Übertragung derselben externen ID legt wieder ein neues Konto an.
 
-Avatar-URLs werden gespeichert und vom Browser geladen. Vorum lädt keine Bilder
-serverseitig von fremden URLs herunter. Die URL muss daher ohne Bearer-Token und
-ohne vorausgesetzte Sitzung im Quellsystem als Bild abrufbar sein. Für HTTPS-Foren
-auch HTTPS-Bilder verwenden. Der externe Bildserver erhält bei der Anzeige eine
-Browser-Anfrage ohne Referrer; lokale hochgeladene Avatare werden wie bisher geprüft
-und verkleinert.
+Für Avatar-Vorschläge bei neuen oder noch nicht bestätigten Profilen lädt Vorum
+das Bild während der API-Anfrage serverseitig herunter. Die URL muss ohne
+Bearer-Token oder Sitzung erreichbar sein und auf einen öffentlichen Server
+verweisen. Private, lokale und reservierte IP-Adressen sind auch als
+Weiterleitungsziele gesperrt. Der Download ist auf 10 MiB begrenzt und verwendet
+Zeitlimits; höchstens drei Weiterleitungen sind erlaubt. Vorum prüft die echten
+Bilddaten mit demselben Verfahren wie lokale Avatar-Uploads, erlaubt maximal
+20 Millionen Pixel und erzeugt ein PNG mit höchstens 256 × 256 Pixeln. SVG und
+andere nicht dekodierbare Inhalte werden abgelehnt.
+
+Die geprüfte Vorschau wird temporär zusammen mit dem Login-Token gespeichert und
+auf der Bestätigungsseite ausschließlich über Vorum ausgeliefert. Der Browser
+kontaktiert dabei keinen externen Bildserver. Bei Zustimmung wird genau diese
+Vorschau als lokaler Avatar gespeichert; bei Ablehnung entsteht keine Upload-Datei.
+Verbrauchte, ersetzte oder widerrufene Tokens samt Vorschau werden gelöscht.
+Nach Ablauf ist die Vorschau nicht mehr abrufbar; abgelaufene Tokens werden beim
+nächsten erfolgreichen API-Aufruf entfernt. Bereits abgeschlossene Profile
+ignorieren spätere Bildvorschläge, ohne sie erneut herunterzuladen.
+
+Verbindliche Avatar-URLs (`avatar_suggestion: false`) werden weiterhin gespeichert
+und vom Browser geladen. Hier erhält der externe Bildserver eine Browser-Anfrage
+ohne Referrer; für HTTPS-Foren auch HTTPS-Bilder verwenden.
 
 ## 5. Fehler
 
@@ -181,10 +199,12 @@ API-Fehlerantworten haben JSON-Format:
 | 400 | `invalid_username` | Name fehlt oder verletzt die Namensregeln. |
 | 400 | `invalid_boolean` | Erforderlicher Bestätigungsstatus fehlt oder ein Boolean hat den falschen Typ. |
 | 400 | `invalid_avatar_url` | Avatar-URL hat einen ungültigen Typ oder Inhalt. |
+| 400 | `invalid_avatar_image` | Vorgeschlagenes Bild ist nicht abrufbar, ungültig, zu groß oder verweist auf ein gesperrtes Ziel. |
 | 401 | `unauthorized` | Bearer-Token fehlt, ist falsch/widerrufen oder gehört zu einem anderen Forum; auch bei unbekanntem Host. |
 | 404 | `not_found` | API-Pfad existiert nicht. |
 | 405 | `method_not_allowed` | Falsche HTTP-Methode. |
 | 409 | `email_conflict` | Adresse ist bereits anderweitig belegt. |
+| 409 | `profile_changed` | Profil wurde während der Bildverarbeitung gelöscht bzw. neu angelegt; Anfrage wiederholen. |
 | 413 | `payload_too_large` | Anfrage überschreitet das Größenlimit. |
 | 415 | `unsupported_media_type` | `Content-Type: application/json` fehlt. |
 
@@ -217,6 +237,6 @@ behandeln, nicht in öffentlichen Frontends, Analytics oder Nachrichten ausgeben
 Reverse-Proxy- und Zugriffslogs so konfigurieren, dass geheime Login-Pfade nicht
 gespeichert werden. Vorum setzt `Cache-Control: no-store` und für Login-Link-Seiten
 `Referrer-Policy: no-referrer`. Schlüssel und Links sind je Forum isoliert; Cookies
-gelten weiterhin pro Hostname. Für Login-URLs wird der Host und das Schema der
-API-Anfrage verwendet. Bei TLS-Terminierung die Hinweise zum Reverse Proxy in der
-README beachten.
+gelten weiterhin pro Hostname. Für Login-URLs wird der Host der API-Anfrage mit
+festem HTTPS-Schema verwendet. Bei TLS-Terminierung die Hinweise zum Reverse Proxy
+in der README beachten.

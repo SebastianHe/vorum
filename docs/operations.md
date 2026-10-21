@@ -52,13 +52,12 @@ Zugriff auf den Anwendungsport per Firewall oder Port-Bindung begrenzen.
 
 Vorum vertraut Forwarded-Headern nicht automatisch. Bei TLS-Terminierung am Proxy
 wird das öffentliche HTTPS-Schema deshalb nicht allein durch
-`X-Forwarded-Proto: https` übernommen. Für automatisch erzeugte externe Links,
-insbesondere API-Login-Links, muss Vorum das richtige Schema sehen, etwa durch
-HTTPS auch auf der Verbindung vom Proxy zum Anwendungsserver. Die mitgelieferte
-Gunicorn-Konfiguration bietet auf Port 8000 zunächst HTTP; ein solcher Aufbau
-braucht eine angepasste Server- und Proxy-Konfiguration. Vor einer Freigabe die
-erzeugten URLs prüfen. Ein HTTP-Ziel mit sicheren Cookies kann die Anmeldung
-verhindern.
+`X-Forwarded-Proto: https` übernommen. API-Login-Links verwenden unabhängig davon
+immer HTTPS mit dem Host der API-Anfrage. Die Verbindung vom Proxy zum
+Anwendungsserver darf für diese Links weiterhin HTTP verwenden; die öffentliche
+Adresse muss per HTTPS erreichbar sein. Andere automatisch erzeugte externe Links
+verwenden weiterhin das Schema, das Vorum sieht. Dafür gegebenenfalls die Server-
+und Proxy-Konfiguration anpassen und die erzeugten URLs vor einer Freigabe prüfen.
 
 Geheime API-Login-Pfade nicht in Proxy-Zugriffslogs oder Analytics speichern.
 Weitere Hinweise stehen in [SECURITY.md](../SECURITY.md).

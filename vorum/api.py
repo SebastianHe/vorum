@@ -1,14 +1,16 @@
 """Tenant-scoped integrations and single-use browser login links."""
 import hashlib
+import io
 import re
 import secrets
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Blueprint, abort, flash, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Blueprint, abort, flash, g, jsonify, redirect, render_template, request, send_file, send_from_directory, session, url_for
 
 from . import db, email_exists, generate_password_hash, now, one, remove_avatar, role_required, rows, slug, valid_email, valid_http_url, valid_username
+from .avatars import download_avatar
 
 
 def token_hash(token):
@@ -91,6 +93,16 @@ def register_api(app, tr, send_code):
             return api_error('invalid_avatar_url', 'avatar_url muss eine HTTP-/HTTPS-URL oder null sein.')
         avatar_url = avatar_url or None
 
+        # Fetch before taking the database write lock. Completed profiles ignore
+        # later suggestions, so they never need another download.
+        existing = one('SELECT profile_pending FROM users WHERE tenant_id=? AND external_id=?', (g.tenant['id'], external_id))
+        avatar_preview = None
+        if avatar_suggestion and avatar_url and (existing is None or existing['profile_pending']):
+            try:
+                avatar_preview = download_avatar(avatar_url)
+            except ValueError:
+                return api_error('invalid_avatar_image', 'Der vorgeschlagene Avatar konnte nicht als gültiges Bild geladen werden.')
+
         # Serialize identity lookup, collision checks and token creation with revocation.
         db().execute('BEGIN IMMEDIATE')
         if not one('SELECT id FROM api_keys WHERE id=? AND tenant_id=? AND token_hash=?', (key['id'], g.tenant['id'], key['token_hash'])):
@@ -102,8 +114,12 @@ def register_api(app, tr, send_code):
             return api_error('email_conflict', 'Diese E-Mail-Adresse wird bereits von einem anderen Benutzer verwendet.', 409)
         created = user is None
         old_avatar = user['avatar'] if user else None
+        pending = (created or bool(user['profile_pending'])) and (name_suggestion or (avatar_suggestion and bool(avatar_url)))
+        # A concurrent deletion can turn a completed account into a new one.
+        if pending and avatar_suggestion and avatar_url and avatar_preview is None:
+            db().rollback()
+            return api_error('profile_changed', 'Das Profil wurde zwischenzeitlich geändert. Bitte die Anfrage wiederholen.', 409)
         if created:
-            pending = name_suggestion or (avatar_suggestion and bool(avatar_url))
             user_id = db().execute('''INSERT INTO users
                 (slug,tenant_id,username,email,password,verified,color,created_at,external_id,
                  username_suggestion,avatar_editable,avatar,avatar_suggestion_url,profile_pending)
@@ -120,7 +136,7 @@ def register_api(app, tr, send_code):
                 avatar=?,avatar_suggestion_url=?,profile_pending=?,pending_email=NULL WHERE id=?''',
                 (name, email, int(verified), int(name_suggestion), int(avatar_suggestion),
                  user['avatar'] if avatar_suggestion else avatar_url, avatar_url if avatar_suggestion else None,
-                 int(bool(user['profile_pending']) and (name_suggestion or (avatar_suggestion and bool(avatar_url)))), user_id))
+                 int(pending), user_id))
             if email != user['email'].lower() or verified:
                 db().execute('''UPDATE users SET code_hash=NULL,registration_code=NULL,code_until=NULL,
                     code_attempts=0,cooldown_until=NULL,code_sent=NULL WHERE id=?''', (user_id,))
@@ -129,16 +145,25 @@ def register_api(app, tr, send_code):
         expires_at = time.time() + 300
         # A fresh transfer supersedes earlier login links for the same identity.
         db().execute('DELETE FROM api_login_tokens WHERE user_id=? OR expires_at<=?', (user_id, time.time()))
-        db().execute('INSERT INTO api_login_tokens (token_hash,tenant_id,user_id,key_id,expires_at) VALUES (?,?,?,?,?)',
-                     (token_hash(token), g.tenant['id'], user_id, key['id'], expires_at))
+        db().execute('INSERT INTO api_login_tokens (token_hash,tenant_id,user_id,key_id,expires_at,avatar_preview) VALUES (?,?,?,?,?,?)',
+                     (token_hash(token), g.tenant['id'], user_id, key['id'], expires_at, avatar_preview if pending else None))
         db().execute('UPDATE api_keys SET last_used_at=? WHERE id=?', (now(), key['id']))
         db().commit()
         if old_avatar != user['avatar']:
             remove_avatar(Path(app.config['DATA_DIR']), old_avatar)
-        return jsonify(created=created, login_url=url_for('api.external_login', token=token, _external=True), expires_in=300,
+        return jsonify(created=created, login_url=url_for('api.external_login', token=token, _external=True, _scheme='https'), expires_in=300,
                        expires_at=datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
                        user={'external_id': external_id, 'email': user['email'], 'email_verified': bool(user['verified']),
                              'username': user['username'], 'profile_required': bool(user['profile_pending'])}), 201 if created else 200
+
+    @api.get('/api-login/<token>/avatar')
+    def avatar_preview(token):
+        link = one('''SELECT l.avatar_preview FROM api_login_tokens l JOIN users u ON u.id=l.user_id
+            WHERE l.token_hash=? AND l.tenant_id=? AND l.expires_at>? AND u.profile_pending=1''',
+            (token_hash(token), g.tenant['id'], time.time()))
+        if not link or not link['avatar_preview']:
+            abort(410)
+        return send_file(io.BytesIO(link['avatar_preview']), mimetype='image/png')
 
     @api.route('/api-login/<token>', methods=['GET', 'POST'])
     def external_login(token):
@@ -155,18 +180,32 @@ def register_api(app, tr, send_code):
         if request.method == 'HEAD':
             db().rollback()
             return '', 204
-        if user['profile_pending']:
-            name = request.form.get('username', user['username']) if user['username_suggestion'] else user['username']
-            error = None
-            if request.method == 'POST' and not valid_username(name):
-                error = tr('Benutzername: 1–25 Zeichen, keine äußeren oder doppelten Leerzeichen.')
-            if request.method != 'POST' or error:
-                db().rollback()
-                return render_template('api_profile.html', user=user, username=name, error=error), 400 if error else 200
-            avatar = user['avatar_suggestion_url'] if user['avatar_editable'] and request.form.get('accept_avatar')=='on' else user['avatar']
-            db().execute('UPDATE users SET username=?,avatar=?,profile_pending=0,avatar_suggestion_url=NULL WHERE id=?', (name, avatar, user['id']))
-        db().execute('DELETE FROM api_login_tokens WHERE token_hash=?', (link['token_hash'],))
-        db().commit()
+        avatar = user['avatar']
+        saved_avatar = None
+        try:
+            if user['profile_pending']:
+                name = request.form.get('username', user['username']) if user['username_suggestion'] else user['username']
+                error = None
+                if request.method == 'POST' and not valid_username(name):
+                    error = tr('Benutzername: 1–25 Zeichen, keine äußeren oder doppelten Leerzeichen.')
+                if request.method != 'POST' or error:
+                    db().rollback()
+                    preview_url = url_for('api.avatar_preview', token=token) if link['avatar_preview'] else None
+                    return render_template('api_profile.html', user=user, username=name, error=error, preview_url=preview_url), 400 if error else 200
+                if user['avatar_editable'] and request.form.get('accept_avatar')=='on' and link['avatar_preview']:
+                    avatar = secrets.token_hex(24) + '.png'
+                    saved_avatar = Path(app.config['DATA_DIR'])/'uploads'/avatar
+                    saved_avatar.write_bytes(link['avatar_preview'])
+                db().execute('UPDATE users SET username=?,avatar=?,profile_pending=0,avatar_suggestion_url=NULL WHERE id=?', (name, avatar, user['id']))
+            db().execute('DELETE FROM api_login_tokens WHERE token_hash=?', (link['token_hash'],))
+            db().commit()
+        except Exception:
+            db().rollback()
+            if saved_avatar:
+                saved_avatar.unlink(missing_ok=True)
+            raise
+        if avatar != user['avatar']:
+            remove_avatar(Path(app.config['DATA_DIR']), user['avatar'])
         session.clear()
         session['user_id'] = user['id']
         if not user['verified']:

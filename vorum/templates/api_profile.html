@@ -9,8 +9,8 @@
     {{ token() }}
     {% if user.username_suggestion %}<label>{{ t('Benutzername') }}<input name="username" value="{{ username }}" maxlength="25" required autocomplete="username"></label>
     {% else %}<p>{{ t('Benutzername') }}: <strong>{{ user.username }}</strong></p>{% endif %}
-    {% if user.avatar_editable and user.avatar_suggestion_url %}
-    <img class="suggested-avatar" src="{{ user.avatar_suggestion_url }}" alt="{{ t('Vorgeschlagener Avatar') }}" referrerpolicy="no-referrer">
+    {% if user.avatar_editable and preview_url %}
+    <img class="suggested-avatar" src="{{ preview_url }}" alt="{{ t('Vorgeschlagener Avatar') }}" referrerpolicy="no-referrer">
     <label class="checkbox"><input type="checkbox" name="accept_avatar" checked> {{ t('Vorgeschlagenen Avatar übernehmen') }}</label>
     {% endif %}
     <button class="button">{{ t('Profil bestätigen und einloggen') }}</button>

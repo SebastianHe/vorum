@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS api_login_tokens (
  tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  key_id INTEGER NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
- expires_at REAL NOT NULL
+ expires_at REAL NOT NULL, avatar_preview BLOB
 );
 CREATE INDEX IF NOT EXISTS api_login_expiry ON api_login_tokens(expires_at);
 CREATE TABLE IF NOT EXISTS forum_visits (
