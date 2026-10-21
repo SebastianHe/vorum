@@ -110,6 +110,16 @@ ist dennoch an den jeweiligen Browser-Hostnamen gebunden; dieselben globalen
 Zugangsdaten lassen sich auf den verschiedenen Hosts verwenden. Für einen
 zweiten lokalen Test kann ein weiteres Forum den Hostnamen `127.0.0.1` bekommen.
 
+Super-Admins können im Super-Backend hinter jedem Frontend- und Backend-Link
+das Menü „...“ öffnen und „Über den aktuellen Hostname öffnen“ wählen. Ein
+hostgebundenes Sitzungscookie wählt dann das Forum aus, ohne die Adresse oder
+Anmeldung zu wechseln. Die Auswahl gilt ausschließlich für angemeldete,
+bestätigte Super-Admins und endet beim Öffnen des Super-Backends oder Ausloggen.
+Ein Warnhinweis im Header von Frontend und Backend zeigt das ausgewählte Forum;
+„Zurück“ entfernt die Auswahl und führt ins Super-Backend.
+Die bisherigen Links öffnen weiterhin den konfigurierten Hostnamen. Die
+Bearer-API verwendet immer die Hostnamen-Zuordnung und ignoriert dieses Cookie.
+
 ## Starten, stoppen und aktualisieren
 
 Die folgenden Befehle gelten für die empfohlene Installation mit der

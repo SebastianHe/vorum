@@ -32,6 +32,8 @@ EN = {
 'Aktuelles Passwort':'Current password','Konto endgültig löschen':'Permanently delete account','Speichern':'Save','SUPER-BACKEND':'SUPER ADMIN',
 'Deine Foren':'Your forums','Ein Zuhause für jede Community.':'A home for every community.','FORUM':'FORUM','Frontend':'Forum',
 'Forum bearbeiten':'Edit forum','Forum anlegen':'Create forum','Name des Forums':'Forum name','Hostnamen':'Hostnames',
+'Weitere Optionen':'More options','Über den aktuellen Hostname öffnen':'Open using the current hostname',
+'Du rufst ein Fremd-Forum über den aktuellen Hostnamen auf:':'You are viewing another forum using the current hostname:',
 'Ein Hostname pro Zeile, ohne Protokoll oder Port. Für lokale Nutzung: localhost.':'One hostname per line, without protocol or port. For local use: localhost.',
 'Verwaltung':'Administration','Dashboard':'Dashboard','Themenbereiche':'Categories','Benutzer':'Users','Zum Forum':'Go to forum','BACKEND':'ADMINISTRATION',
 'Alles im Blick.':'Everything at a glance.','Topics':'Topics','Lokale Benutzer':'Local users','Dein Forum gestalten':'Make this forum yours',

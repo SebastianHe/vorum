@@ -22,6 +22,20 @@
       if (!confirm(document.body.dataset.confirmMessage)) event.preventDefault();
     });
   });
+  const forumMenus = document.querySelectorAll('.forum-open-menu');
+  forumMenus.forEach(menu => {
+    menu.addEventListener('toggle', () => {
+      if (menu.open) forumMenus.forEach(other => { if (other !== menu) other.open = false; });
+    });
+  });
+  document.addEventListener('click', event => {
+    forumMenus.forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') forumMenus.forEach(menu => {
+      if (menu.open) { menu.open = false; menu.querySelector('summary').focus(); }
+    });
+  });
   const textarea = document.querySelector('#body');
   const editor = document.querySelector('#rich-editor');
   if (textarea && editor) {

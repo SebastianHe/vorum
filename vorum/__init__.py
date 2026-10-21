@@ -42,6 +42,7 @@ FORUM_INTRO_DEFAULTS = {
 COLORS = ['#235789','#a13d63','#286b54','#7952a8','#ad502a','#366c84','#824b71','#65732e','#326b73','#8d5544','#4b57a0','#9a3560','#27795c','#72549c','#93652d','#4f677c','#a04444','#476f46','#6b5792','#236f80']
 # Contenteditable uses div blocks for Enter, including empty lines with a br.
 ALLOWED_TAGS = ['div','p','br','strong','em','b','i','u','s','blockquote','ul','ol','li','a','h2','h3','pre','code']
+SUPERADMIN_TENANT_COOKIE = 'vorum_superadmin_tenant'
 
 
 def generate_password_hash(value):
@@ -196,6 +197,7 @@ def create_app(config=None):
         g.app_db = app.config['DATABASE']
         host = request.host.lower().split(':')[0].rstrip('.')
         g.tenant = one('SELECT t.* FROM tenants t JOIN hosts h ON h.tenant_id=t.id WHERE h.hostname=?', (host,))
+        g.tenant_selection_active = False
         g.lang = session.get('lang') or request.accept_languages.best_match(['de','en']) or 'de'
         # JSON endpoints authenticate only with Bearer tokens, never browser cookies.
         if request.path.startswith('/api/'):
@@ -204,11 +206,20 @@ def create_app(config=None):
         g.user = one('SELECT * FROM users WHERE id=?', (session.get('user_id'),))
         if g.user and g.user['tenant_id'] is not None and (not g.tenant or g.user['tenant_id'] != g.tenant['id']):
             g.user = None
+        # The cookie selects a forum, but never grants access on its own.
+        if (g.user and g.user['role']=='superadmin' and g.user['verified'] and not g.user['profile_pending']
+                and request.endpoint not in ('superadmin', 'api.external_login')):
+            selected = request.cookies.get(SUPERADMIN_TENANT_COOKIE)
+            if selected:
+                tenant = one('SELECT * FROM tenants WHERE slug=?', (selected,))
+                if tenant:
+                    g.tenant = tenant
+                    g.tenant_selection_active = True
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(32)
         if request.method == 'POST' and not hmac.compare_digest(session['csrf'].encode(), request.form.get('csrf','').encode()):
             abort(400, 'Ungültiges Formular. Bitte Seite neu laden.')
-        allowed = {'index','register','login','logout','verify','resend','static','language','superadmin','tenant_edit'}
+        allowed = {'index','register','login','logout','verify','resend','static','language','superadmin','tenant_edit','tenant_open'}
         if not g.tenant and request.endpoint not in allowed and request.endpoint is not None:
             abort(404)
 
@@ -221,6 +232,18 @@ def create_app(config=None):
             if (not g.tenant['guests_can_view_forum'] and request.endpoint not in guest_endpoints
                     or not g.tenant['guests_can_view_topics'] and request.endpoint == 'topic'):
                 return redirect(url_for('login', next=request.full_path.rstrip('?')))
+
+    @app.after_request
+    def clear_tenant_selection(response):
+        if request.path.startswith('/api/'):
+            return response
+        if request.cookies.get(SUPERADMIN_TENANT_COOKIE) and (
+                request.endpoint=='superadmin'
+                or not g.user or g.user['role']!='superadmin' or not g.user['verified']
+                or g.user['profile_pending'] or session.get('user_id')!=g.user['id']):
+            response.delete_cookie(SUPERADMIN_TENANT_COOKIE, secure=app.config['SESSION_COOKIE_SECURE'],
+                                   httponly=True, samesite='Lax')
+        return response
 
     @app.teardown_appcontext
     def close_db(error):
@@ -741,6 +764,20 @@ def create_app(config=None):
         if request.method=='POST':
             return save_tenant(tenant)
         return render_template('super.html',tenants=[],hosts={},editing=tenant,host_text='\n'.join(h['hostname'] for h in rows('SELECT hostname FROM hosts WHERE tenant_id=?',(tenant['id'],))))
+
+    @app.post('/super/forums/<tenant_slug>/open')
+    @role_required('superadmin')
+    def tenant_open(tenant_slug):
+        tenant=one('SELECT * FROM tenants WHERE slug=?',(tenant_slug,))
+        if not tenant:
+            abort(404)
+        destination=request.form.get('destination')
+        if destination not in ('index','admin'):
+            abort(400)
+        response=redirect(url_for(destination))
+        response.set_cookie(SUPERADMIN_TENANT_COOKIE,tenant['slug'],secure=app.config['SESSION_COOKIE_SECURE'],
+                            httponly=True,samesite='Lax')
+        return response
 
     @app.get('/admin')
     @role_required('superadmin','admin')

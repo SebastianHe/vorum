@@ -6,7 +6,7 @@ import pytest
 from markupsafe import escape
 from PIL import Image
 
-from vorum import FORUM_INTRO_DEFAULTS, create_app
+from vorum import FORUM_INTRO_DEFAULTS, SUPERADMIN_TENANT_COOKIE, create_app
 
 
 @pytest.fixture
@@ -94,6 +94,133 @@ def test_bootstrap_and_unknown_host(app):
     assert client.get('/topics/new').status_code==404
     assert post(client,'/super',{'name':'Forum','hosts':'localhost'}).status_code==302
     assert client.get('/').status_code==200
+
+
+@pytest.mark.parametrize('destination,path', [('index','/'), ('admin','/admin')])
+@pytest.mark.parametrize('host', ['localhost', 'unknown.test:8080'])
+def test_superadmin_opens_forum_on_current_host(app,setup,destination,path,host):
+    tenant=query(app,"SELECT * FROM tenants WHERE name='Second'")
+    if host!='localhost':
+        assert login(setup,host=host).status_code==302
+    response=post(setup,'/super/forums/'+tenant['slug']+'/open',{'destination':destination},host)
+    assert response.status_code==302 and response.location==path
+    cookie=setup.get_cookie(SUPERADMIN_TENANT_COOKIE,domain=host.split(':')[0])
+    assert cookie.value==tenant['slug'] and cookie.http_only and cookie.same_site=='Lax'
+    assert cookie.origin_only and cookie.path=='/' and cookie.expires is None
+    page=setup.get(path,base_url='http://'+host)
+    assert page.status_code==200 and '<title>Second · Vorum</title>' in page.text
+    assert '<title>Second · Vorum</title>' in setup.get('/admin/settings',base_url='http://'+host).text
+    # Writes and resource lookups use the selected forum too.
+    location=new_topic(setup,host=host)
+    assert query(app,'SELECT tenant_id FROM topics')['tenant_id']==tenant['id']
+    assert setup.get(location,base_url='http://'+host).status_code==200
+    other_host='alias.test'
+    login(setup,host=other_host)
+    assert setup.get(location,base_url='http://'+other_host).status_code==404
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE,domain=other_host) is None
+
+
+def test_superadmin_selection_ends_in_overview_and_on_logout(app,setup):
+    tenant=query(app,"SELECT * FROM tenants WHERE name='Second'")
+    switch='/super/forums/'+tenant['slug']+'/open'
+    post(setup,switch,{'destination':'index'})
+    assert setup.get('/super').status_code==200
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE) is None
+    assert '<title>Community · Vorum</title>' in setup.get('/').text
+    post(setup,switch,{'destination':'admin'})
+    assert post(setup,'/logout').status_code==302
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE) is None
+    assert login(setup).status_code==302
+    assert '<title>Community · Vorum</title>' in setup.get('/').text
+
+
+@pytest.mark.parametrize('forum', ['Community','Second'])
+def test_selected_forum_header_warning_and_return(app,setup,forum):
+    assert 'class="tenant-warning"' not in setup.get('/').text
+    tenant=query(app,'SELECT * FROM tenants WHERE name=?',(forum,))
+    post(setup,'/super/forums/'+tenant['slug']+'/open',{'destination':'index'})
+    for path in ('/','/admin','/admin/settings'):
+        header=setup.get(path).text.split('</header>')[0]
+        assert 'class="tenant-warning" role="alert"' in header
+        assert 'Du rufst ein Fremd-Forum über den aktuellen Hostnamen auf:' in header
+        assert '<strong>'+forum+'</strong>' in header
+        assert '<a class="button secondary compact" href="/super">Zurück</a>' in header
+    post(setup,'/language/en',{'next':'/admin'})
+    header=setup.get('/admin').text.split('</header>')[0]
+    assert 'You are viewing another forum using the current hostname:' in header
+    assert 'href="/super">Back</a>' in header
+    response=setup.get('/super')
+    assert response.status_code==200 and 'class="tenant-warning"' not in response.text
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE) is None
+    assert '<title>Community · Vorum</title>' in setup.get('/').text
+    assert 'class="tenant-warning"' not in setup.get('/admin').text
+
+
+@pytest.mark.parametrize('role', ['admin','moderator','user',None])
+def test_forum_selection_cookie_cannot_grant_superadmin_access(app,setup,role):
+    tenant=query(app,"SELECT * FROM tenants WHERE name='Second'")
+    if role:
+        query(app,"UPDATE users SET role=? WHERE email='root@example.org'",(role,))
+        client=setup
+    else:
+        client=app.test_client()
+    client.set_cookie(SUPERADMIN_TENANT_COOKIE,tenant['slug'])
+    page=client.get('/').text
+    assert '<title>Community · Vorum</title>' in page
+    assert 'class="tenant-warning"' not in page
+    assert client.get_cookie(SUPERADMIN_TENANT_COOKIE) is None
+    response=post(client,'/super/forums/'+tenant['slug']+'/open',{'destination':'admin'})
+    assert response.status_code==(403 if role else 302)
+    assert client.get_cookie(SUPERADMIN_TENANT_COOKIE) is None
+
+
+def test_local_user_cannot_switch_tenant_with_forged_cookie(app,setup):
+    member=verified(app)
+    tenant=query(app,"SELECT * FROM tenants WHERE name='Second'")
+    member.set_cookie(SUPERADMIN_TENANT_COOKIE,tenant['slug'])
+    location=new_topic(member)
+    assert query(app,'SELECT tenant_id FROM topics')['tenant_id']!=tenant['id']
+    assert member.get(location).status_code==200
+    assert member.get('/admin').status_code==403
+
+
+def test_unverified_superadmin_cannot_select_forum(app,setup):
+    tenant=query(app,"SELECT * FROM tenants WHERE name='Second'")
+    query(app,"UPDATE users SET verified=0 WHERE role='superadmin'")
+    setup.set_cookie(SUPERADMIN_TENANT_COOKIE,tenant['slug'])
+    assert '<title>Community · Vorum</title>' in setup.get('/').text
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE) is None
+    assert post(setup,'/super/forums/'+tenant['slug']+'/open',{'destination':'index'}).location.startswith('/verify')
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE) is None
+
+
+def test_superadmin_selection_validation_and_secure_cookie(app,setup):
+    tenant=query(app,"SELECT * FROM tenants WHERE name='Second'")
+    switch='/super/forums/'+tenant['slug']+'/open'
+    assert setup.get(switch).status_code==405
+    assert setup.post(switch,data={'destination':'admin'}).status_code==400
+    assert post(setup,'/super/forums/missing/open',{'destination':'index'}).status_code==404
+    for destination in ('','https://evil.test','//evil.test','settings'):
+        assert post(setup,switch,{'destination':destination}).status_code==400
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE) is None
+    setup.set_cookie(SUPERADMIN_TENANT_COOKIE,'missing-forum')
+    page=setup.get('/').text
+    assert '<title>Community · Vorum</title>' in page
+    assert 'class="tenant-warning"' not in page
+    app.config['SESSION_COOKIE_SECURE']=True
+    assert post(setup,switch,{'destination':'admin'}).status_code==302
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE).secure
+
+
+def test_superadmin_forum_links_and_dropdown_translations(app,setup):
+    page=setup.get('/super').text
+    for host in ('localhost','alias.test','other.test'):
+        assert 'href="http://'+host+'/"' in page
+        assert 'href="http://'+host+'/admin"' in page
+    assert page.count('class="forum-open-menu"')==6
+    assert page.count('Über den aktuellen Hostname öffnen')==6
+    post(setup,'/language/en',{'next':'/super'})
+    assert setup.get('/super').text.count('Open using the current hostname')==6
 
 
 def test_all_pages_and_languages(app,setup):

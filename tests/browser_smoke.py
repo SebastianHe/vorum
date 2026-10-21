@@ -39,6 +39,45 @@ with tempfile.TemporaryDirectory(prefix='vorum-browser-') as tmp:
             page.get_by_label('Name des Forums').fill('Vorum Community')
             page.get_by_label('Hostnamen').fill('127.0.0.1')
             page.get_by_role('button',name='Forum anlegen',exact=True).click()
+            page.get_by_label('Name des Forums').fill('Zweites Forum')
+            page.get_by_label('Hostnamen').fill('unconfigured.example.org')
+            page.get_by_role('button',name='Forum anlegen',exact=True).click()
+            second=page.locator('.forum-card').filter(has=page.get_by_role('heading',name='Zweites Forum',exact=True))
+            assert second.get_by_role('link',name='Frontend ↗',exact=True).get_attribute('href').startswith('http://unconfigured.example.org:')
+            for width,theme in ((1440,'light'),(390,'light'),(390,'dark')):
+                page.set_viewport_size({'width':width,'height':1000})
+                page.emulate_media(color_scheme=theme)
+                second.locator('.forum-open-menu summary').first.click()
+                option=second.get_by_role('button',name='Über den aktuellen Hostname öffnen',exact=True).first
+                assert option.is_visible()
+                bounds=option.bounding_box()
+                assert bounds['x']>=0 and bounds['x']+bounds['width']<=width
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                page.screenshot(path=str(output/f'super-dropdown-{width}-{theme}.png'),full_page=True)
+                page.keyboard.press('Escape')
+                assert not option.is_visible()
+            for index,path in ((0,'/'),(1,'/admin')):
+                menu=second.locator('.forum-open-menu').nth(index)
+                menu.locator('summary').click()
+                menu.get_by_role('button',name='Über den aktuellen Hostname öffnen',exact=True).click()
+                page.wait_for_url(base+path)
+                assert page.title()=='Zweites Forum · Vorum'
+                warning=page.locator('header .tenant-warning')
+                assert warning.is_visible() and 'Zweites Forum' in warning.inner_text()
+                for width,theme in ((1440,'light'),(390,'light'),(390,'dark')):
+                    page.set_viewport_size({'width':width,'height':1000})
+                    page.emulate_media(color_scheme=theme)
+                    assert warning.get_by_role('link',name='Zurück',exact=True).is_visible()
+                    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                    page.screenshot(path=str(output/f'forum-warning-{index}-{width}-{theme}.png'),full_page=True)
+                page.goto(base+'/admin/settings')
+                assert page.title()=='Zweites Forum · Vorum'
+                page.locator('header .tenant-warning').get_by_role('link',name='Zurück',exact=True).click()
+                page.wait_for_url(base+'/super')
+                assert not any(cookie['name']=='vorum_superadmin_tenant' for cookie in page.context.cookies())
+                assert page.locator('.tenant-warning').count()==0
+            page.set_viewport_size({'width':1440,'height':1000})
+            page.emulate_media(color_scheme='light')
             page.goto(base)
             page.locator('.notification-menu summary').click()
             assert page.locator('.notification-dropdown button').count()==5
@@ -247,6 +286,6 @@ with tempfile.TemporaryDirectory(prefix='vorum-browser-') as tmp:
             assert page.get_by_text('Noch keine API-Schlüssel.',exact=True).is_visible()
             assert not errors,errors
             browser.close()
-            print('Browser smoke passed: setup, topics, rich text, replies, mobile layouts, themes, language, appearance, logo upload/removal, favicon, API keys, auth settings, external login. Screenshots:',output)
+        print('Browser smoke passed: setup, superadmin forum switching, dropdowns, topics, rich text, replies, mobile layouts, themes, language, appearance, logo upload/removal, favicon, API keys, auth settings, external login. Screenshots:',output)
     finally:
         server.shutdown()

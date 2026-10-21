@@ -28,7 +28,9 @@
 {% if g.tenant and g.user.role in ['admin','superadmin'] %}<a href="{{ url_for('admin') }}">{{ t('Backend') }}</a>{% endif %}
 {% if not g.user.verified or g.user.pending_email %}<a href="{{ url_for('verify') }}">{{ t('E-Mail bestätigen') }}</a>{% endif %}
 <form method="post" action="{{ url_for('logout') }}">{{ token() }}<button class="quiet">{{ t('Ausloggen') }}</button></form></div></details>
-{% elif not g.tenant or g.tenant.login_allowed or g.tenant.login_url %}<a class="button secondary compact" href="{{ url_for('login') }}">{{ t('Einloggen') }}</a>{% endif %}</nav></div></header>
+{% elif not g.tenant or g.tenant.login_allowed or g.tenant.login_url %}<a class="button secondary compact" href="{{ url_for('login') }}">{{ t('Einloggen') }}</a>{% endif %}</nav></div>
+{% if g.tenant_selection_active %}<div class="tenant-warning" role="alert"><div class="nav-wrap tenant-warning-content"><p>{{ t('Du rufst ein Fremd-Forum über den aktuellen Hostnamen auf:') }} <strong>{{ g.tenant.name }}</strong></p><a class="button secondary compact" href="{{ url_for('superadmin') }}">{{ t('Zurück') }}</a></div></div>{% endif %}
+</header>
 <main class="container">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div role="status" class="flash {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}{% block content %}{% endblock %}</main>
 <footer class="container footer"><a class="footer-brand" href="https://www.vorum.de" target="_blank" rel="noopener">Vorum <span class="muted">/ {{ t('Raum für gute Gespräche.') }}</span></a><span class="muted">{{ t('Gemeinsam im Gespräch') }} <span class="online-dot"></span></span></footer>
 </body></html>

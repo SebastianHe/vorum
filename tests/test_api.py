@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 import pytest
 
 from test_vorum import app, setup, login, post, query, register, verified
-from vorum import create_app
+from vorum import SUPERADMIN_TENANT_COOKIE, create_app
 import vorum.api as api_module
 
 
@@ -64,6 +64,24 @@ def test_api_has_bearer_only_auth_json_errors_and_no_cookie(app, setup, api_key)
     assert response.status_code == 400
     response = setup.post('/api/v1/users/login', json={'huge': 'x'*17000}, headers={'Authorization': 'Bearer '+api_key})
     assert response.status_code == 413 and response.is_json
+
+
+def test_api_ignores_superadmin_forum_selection_cookie(app,setup,api_key):
+    tenant=query(app,"SELECT * FROM tenants WHERE name='Second'")
+    assert post(setup,'/super/forums/'+tenant['slug']+'/open',{'destination':'admin'}).status_code==302
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE)
+    assert '<title>Second · Vorum</title>' in setup.get('/admin').text
+    payload={'external_id':'cookie-test','email':'cookie@example.org','email_verified':True,'username':'Cookie test'}
+    response=setup.post('/api/v1/users/login',json=payload,headers={'Authorization':'Bearer '+api_key})
+    assert response.status_code==201
+    assert 'Set-Cookie' not in response.headers
+    assert external_user(app) is None
+    user=query(app,"SELECT * FROM users WHERE external_id='cookie-test'")
+    assert user['tenant_id']!=tenant['id']
+    # Browser login links also retain their hostname-based forum assignment.
+    assert setup.get(response.json['login_url']).location=='/'
+    assert setup.get_cookie(SUPERADMIN_TENANT_COOKIE) is None
+    assert '<title>Community · Vorum</title>' in setup.get('/').text
 
 
 @pytest.mark.parametrize('data,code', [
